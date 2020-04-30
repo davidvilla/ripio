@@ -1,4 +1,4 @@
-
+import sys
 import json
 from urllib.parse import urlparse, urlunparse
 
@@ -17,11 +17,17 @@ def check_(reply, expected=200):
     if reply.status_code == expected:
         return
 
+    if reply.status_code == 404:
+        print("Not found")
+        sys.exit(1)
+
     print("-- ERROR --")
-    error = json.loads(reply.content)['error']
+    error = reply.json()['error']
     print(error['message'])
     if 'detail' in error:
-        print(json.dumps(error['detail'], ident=2))
+        print(error['detail'])
+
+    sys.exit(1)
 
 
 class Credentials:
@@ -46,8 +52,7 @@ class Auth:
 
         parts = urlparse(url)
         user_pass = '{}:{}@'.format(self.credentials.username, self.credentials.password)
-        parts._replace('netloc', user_pass + parts.netloc)
-        return urlunparse(parts)
+        return urlunparse(parts._replace(netloc=user_pass + parts.netloc))
 
 
 class RepoData:
@@ -59,7 +64,19 @@ class RepoData:
 
 
 class Repo(Auth):
-    pass
+    BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}/'
+
+    def __init__(self, full_name, credentials):
+        super().__init__(credentials)
+        self.full_name = full_name
+
+    def last_commits(self, max_=3):
+        commits_url = self.auth(self.BASE_URL.format(self.full_name) + 'commits')
+        print(commits_url)
+        result = requests.get(commits_url)
+        check_(result)
+        commits = json.loads(result.content)['values']
+        return commits[:3]
 
 
 class Workspace(Auth):
@@ -67,14 +84,14 @@ class Workspace(Auth):
 
     def __init__(self, workspace, credentials):
         super().__init__(credentials)
-        self.url = self.auth(self.BASE_URL.format(workspace))
+        self.url = self.BASE_URL.format(workspace)
 
     def ls_repos(self):
         next_link = self.url
         while next_link is not None:
-            result = requests.get(next_link)
+            result = requests.get(self.auth(next_link))
             check_(result)
             page = json.loads(result.content)
+            next_link = page.get('next')
             for repo in page['values']:
                 yield RepoData(repo)
-                next_link = page.get('next')

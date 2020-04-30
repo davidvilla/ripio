@@ -16,6 +16,10 @@ def canceled():
     sys.exit(1)
 
 
+def dash_strip(repo):
+    return repo.strip('/')
+
+
 def user_confirm(text, valid_answers):
     try:
         answer = input(text)
@@ -44,12 +48,12 @@ def cmd_print_head(args):
     repo = Repo(args.repo, args.credentials)
     commits = repo.last_commits()
     if not commits:
-        print("-- repository '{}' is empty".format(repo.fullname))
+        print("-- repository '{}' is empty".format(repo.full_name))
         return
 
     for c in commits:
         print("{} - {}\n\t{}\n".format(
-            c['date'], c['author']['raw'], c['message']))
+            c['date'], c['author']['raw'], c['message'].strip()))
 
 
 def cmd_repo_rename(args):
@@ -90,9 +94,10 @@ parser_ls = cmds.add_parser('ls', help='list repositories')
 parser_ls.set_defaults(func=cmd_print_repos)
 parser_ls.add_argument('owner', help='team or user')
 
-parser_log = cmds.add_parser('head', help='show last commits')
-parser_log.set_defaults(func=cmd_print_head)
-parser_log.add_argument('repo', help='repo fullname: owner/slug')
+parser_head = cmds.add_parser('head', help='show last commits')
+parser_head.set_defaults(func=cmd_print_head)
+parser_head.add_argument('repo', type=dash_strip,
+                         help='repo fullname: owner/slug')
 
 parser_rename = cmds.add_parser('rename', help='rename repository')
 parser_rename.set_defaults(func=cmd_repo_rename)
