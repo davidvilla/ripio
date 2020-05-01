@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+# -*- coding:utf-8; tab-width:4; mode:python -*-
+
+import sys
+sys.path.append('.')
+
+from ripio import cli
+
+cli.run()

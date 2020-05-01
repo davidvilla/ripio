@@ -25,6 +25,9 @@ from setuptools import find_packages
 def local_open(fname):
     return open(os.path.join(os.path.dirname(__file__), fname))
 
+with open("README.md", "r") as readme:
+    long_description = readme.read()
+
 
 exec(open('version.py').read())
 
@@ -38,4 +41,6 @@ setup(name         = 'ripio',
       scripts      = ['bin/ripio'],
       packages     = find_packages(),
       install_requires = local_open('requirements.txt').readlines(),
+      long_description=long_description,
+      long_description_content_type="text/markdown",
 )
