@@ -1,4 +1,6 @@
 *~
 __pycache__
-/dist
-/ripio.egg-info
+dist
+ripio.egg-info
+test
+repo.conf

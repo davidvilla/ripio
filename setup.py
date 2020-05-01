@@ -18,8 +18,7 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 import os
-from distutils.core import setup
-from setuptools import find_packages
+from setuptools import setup, find_packages
 
 
 def local_open(fname):
@@ -43,4 +42,6 @@ setup(name         = 'ripio',
       install_requires = local_open('requirements.txt').readlines(),
       long_description=long_description,
       long_description_content_type="text/markdown",
-)
+      classifiers=[
+        "Programming Language :: Python :: 3",
+      ])
