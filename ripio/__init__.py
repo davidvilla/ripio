@@ -31,6 +31,9 @@ def owner(full_name):
     return full_name.split('/')[0]
 
 def slug(full_name):
+    if not '/' in full_name:
+        return full_name
+
     return full_name.split('/')[1]
 
 
@@ -164,6 +167,8 @@ class Repo(Auth):
         result = requests.get(self.url)
         if result.status_code == 404:
             raise MissingRepo(self.full_name)
+
+        new_name = slug(new_name)
 
         result = requests.put(self.url, data={'name':new_name})
         check_(result)
