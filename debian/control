@@ -1,0 +1,13 @@
+Source: ripio
+Section: utils
+Priority: optional
+Maintainer: David Villa Alises <David.Villa@gmail.com>
+Build-Depends: debhelper (>= 7.0.50~), python3, quilt, dh-python,
+    debhelper-compat (= 12)
+Standards-Version: 4.3.0
+
+Package: ripio
+Architecture: all
+Depends: ${misc:Depends}, python3:any
+Description: Manage hosted git repositories
+ Managet git repositories hosted at bitbucket.org
