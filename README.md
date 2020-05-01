@@ -1,0 +1,1 @@
+ripio is a cli to manage git repositories hosted at bitbucket.

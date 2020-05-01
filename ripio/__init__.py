@@ -1,12 +1,19 @@
 import sys
 import json
+import pathlib
+from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
 
 import logging
 logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger('git').setLevel(logging.WARN)
+logging.getLogger("urllib3").setLevel(logging.WARN)
 
 import requests
+import git
+
+
+REPO_HOME = pathlib.Path.home() / 'repos'
 
 class error(Exception): pass
 
@@ -20,10 +27,10 @@ class RemoteError(error):
 
 
 def owner(full_name):
-    return full_name.split(':')[0]
+    return full_name.split('/')[0]
 
 def slug(full_name):
-    return full_name.split(':')[1]
+    return full_name.split('/')[1]
 
 
 def check_(reply, expected=200):
@@ -37,11 +44,28 @@ def check_(reply, expected=200):
     if not reply.content:
         raise RemoteError(msg)
 
+    if reply.headers.get('Content-Type') != 'application/json':
+        raise RemoteError(reply.text)
+
     error = reply.json()['error']
     msg += '\n' + error['message']
     if 'detail' in error:
         msg += '\n' + json.dumps(error['detail'], indent=2)
         raise RemoteError(msg)
+
+
+class Config:
+    def __init__(self, fname):
+        self.toml = toml.load(fname)
+
+    def credentials(self):
+        return self.toml['bitbucket']['credentials']['default']
+
+    def is_valid(self):
+        if not set(self.toml.keys()).issubset(set('bitbucket')):
+            return False
+
+        return True
 
 
 class Credentials:
@@ -54,6 +78,9 @@ class Credentials:
             return None
 
         return Credentials(credentials)
+
+    def __str__(self):
+        return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
 
 class Auth:
@@ -86,6 +113,32 @@ class Repo(Auth):
         self.full_name = full_name
         self.url = self.auth(self.BASE_URL.format(self.full_name))
         logging.debug(self.url)
+        self.localpath = REPO_HOME / slug(self.full_name)
+
+    @property
+    @lru_cache
+    def data(self):
+        result = requests.get(self.url)
+        check_(result)
+        return result.json()
+
+    @property
+    @lru_cache
+    def clone_links(self):
+        '''"clone": [
+            {
+                "href": "https://bitbucket.org/repo-test/repo11.git",
+                "name": "https"
+            },
+            {
+                "href": "git@bitbucket.org:repo-test/repo11.git",
+                "name": "ssh"
+            }
+        ]'''
+        retval = {}
+        for link in self.data['links']['clone']:
+            retval[link['name']] = link['href']
+        return retval
 
     def last_commits(self, max_=3):
         commits_url = self.url + 'commits'
@@ -105,13 +158,19 @@ class Repo(Auth):
         return real_name
 
     def create(self):
-        result = requests.post(self.url)
-        check_(result)
+        check_(requests.post(self.url))
 
     def delete(self):
-        result = requests.delete(self.url)
-        check_(result, 204)
+        check_(requests.delete(self.url), 204)
 
+    def clone(self, proto='ssh'):
+        def dash(*data):
+            print('-', end='', flush=True)
+
+        url = self.clone_links[proto]
+        logging.debug(url)
+        git.Repo.clone_from(url, self.localpath, progress=dash)
+        print()
 
 class Workspace(Auth):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
