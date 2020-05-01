@@ -3,7 +3,7 @@
 import sys
 import argparse
 
-from repo import Workspace, Repo, Credentials, owner, slug
+import librepo
 
 def to_kb(bytes):
     "to kilobytes, not kibibytes"
@@ -38,14 +38,16 @@ def confirm_irrecoverable_operation():
 
 
 def cmd_print_repos(args):
-    ws = Workspace(args.owner, args.credentials)
+    ws = librepo.Workspace(args.owner, args.credentials)
     for i, repo in enumerate(ws.ls_repos()):
         print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
             i+1, to_kb(repo.size), repo))
 
+    print('-- ok')
+
 
 def cmd_print_head(args):
-    repo = Repo(args.repo, args.credentials)
+    repo = librepo.Repo(args.repo, args.credentials)
     commits = repo.last_commits()
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
@@ -57,15 +59,15 @@ def cmd_print_head(args):
 
 
 def cmd_repo_rename(args):
-    repo = Repo(args.repo, args.credentials)
-    repo.rename(args.new_name)
+    repo = librepo.Repo(args.repo, args.credentials)
+    new_name = repo.rename(args.new_name)
     print("Repository '{}' renamed as '{}/{}'".format(
-        repo.fullname, owner(repo.fullname), args.new_name))
+        repo.full_name, librepo.owner(repo.full_name), new_name))
 
 
 def cmd_repo_create(args):
     assert args.credentials
-    repo = Repo(args.repo, args.credentials)
+    repo = librepo.Repo(args.repo, args.credentials)
     repo.create()
     print("Repository '{}' created".format(args.repo))
 
@@ -73,21 +75,21 @@ def cmd_repo_create(args):
 def cmd_repo_delete(args):
     assert args.credentials
     confirm_irrecoverable_operation()
-    repo = Repo(args.repo, args.credentials)
-    print("Deleting '{}'\n".format(repo.fullname))
+    repo = librepo.Repo(args.repo, args.credentials)
+    print("Deleting '{}'\n".format(repo.full_name))
     repo.delete()
     print("-- ok")
 
 
 def cmd_repo_clone(args):
-    repo = Repo(args.repo)
-    print("Cloning '{}' to '{}'\n".format(repo.fullname, repo.localpath))
+    repo = librepo.Repo(args.repo)
+    print("Cloning '{}' to '{}'\n".format(repo.full_name, repo.localpath))
     repo.clone()
     print("-- ok")
 
 
 parser = argparse.ArgumentParser(description='manage bitbucket repositories')
-parser.add_argument('-c', '--credentials', type=Credentials.make,
+parser.add_argument('-c', '--credentials', type=librepo.Credentials.make,
                     help="authentication credentials with 'user:pass' format")
 cmds = parser.add_subparsers()
 parser_ls = cmds.add_parser('ls', help='list repositories')
@@ -124,4 +126,9 @@ if not hasattr(args, 'func'):
     parser.print_help()
     sys.exit(1)
 
-args.func(args)
+try:
+    args.func(args)
+except librepo.error as e:
+    print(e)
+    print('-- fail')
+    sys.exit(1)
