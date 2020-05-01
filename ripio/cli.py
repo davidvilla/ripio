@@ -3,6 +3,8 @@
 import sys
 import argparse
 import logging
+from pathlib import Path
+from pprint import pprint
 
 import toml
 import ripio
@@ -22,20 +24,25 @@ def set_verbosity(args):
 
 
 def load_config(args):
-    if args.config is None:
-        return
+    config = None
+    home_config = Path.home() / '.ripio'
+
+    if args.config is not None:
+        config = ripio.Config(args.config)
+    elif home_config.exists():
+        config = ripio.Config(home_config)
 
     try:
-        config = ripio.Config(args.config)
-        args.credentials = ripio.Credentials(config.credentials())
+        for key in ['credentials', 'destdir']:
+            try:
+                setattr(args, key, getattr(config, key)())
+            except ripio.MissingConfig:
+                pass
+
         logging.debug("Config '{}' loaded".format(args.config))
-    except KeyError as e:
-        logging.warning("Missing section '{}' in config '{}'".format(
-            e.args[0], args.config))
+
     except FileNotFoundError as e:
         logging.error(e)
-
-
 
 
 def canceled():
@@ -107,13 +114,20 @@ def cmd_repo_delete(args):
 
 def cmd_repo_clone(args):
     repo = ripio.Repo(args.repo, args.credentials)
+    destdir = args.destdir / repo.slug
     print("Cloning({}) '{}' to '{}'".format(
-        args.proto, repo.full_name, repo.localpath))
-    repo.clone(args.proto)
+        args.proto, repo.full_name, destdir))
+    repo.clone(destdir, args.proto)
+
+
+def cmd_show_config(args):
+    config = vars(args)
+    del config['func']
+    pprint(config)
 
 
 def run():
-    parser = argparse.ArgumentParser(description='manage bitbucket repositories')
+    parser = argparse.ArgumentParser(description='Manage hosted git repositories')
     parser.add_argument('--config', help='alternate config file')
     parser.add_argument('-c', '--credentials', type=ripio.Credentials.make,
                         help="authentication credentials with 'user:pass' format")
@@ -147,7 +161,12 @@ def run():
     parser_clone.add_argument('--http', dest='proto', default='ssh',
                             action='store_const', const='https',
                             help='Use HTTP instead of SSH')
+    parser_clone.add_argument('--destdir', default=Path.cwd(), type=Path,
+                              help='directory where save repository')
     parser_clone.add_argument('repo', help='repo fullname: owner/slug')
+
+    parser_config = cmds.add_parser('config', help='show config')
+    parser_config.set_defaults(func=cmd_show_config)
 
     args = parser.parse_args()
     set_verbosity(args)

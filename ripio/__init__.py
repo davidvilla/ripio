@@ -1,6 +1,6 @@
 import sys
 import json
-import pathlib
+from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
 
@@ -11,9 +11,8 @@ logging.getLogger("urllib3").setLevel(logging.WARN)
 
 import requests
 import git
+import toml
 
-
-REPO_HOME = pathlib.Path.home() / 'repos'
 
 class error(Exception): pass
 
@@ -24,6 +23,8 @@ class MissingRepo(error):
 class RemoteError(error):
     def __str__(self):
         return self.args[0]
+
+class MissingConfig(error): pass
 
 
 def owner(full_name):
@@ -56,10 +57,20 @@ def check_(reply, expected=200):
 
 class Config:
     def __init__(self, fname):
+        self.fname = fname
         self.toml = toml.load(fname)
 
     def credentials(self):
-        return self.toml['bitbucket']['credentials']['default']
+        try:
+            return Credentials(self.toml['bitbucket']['credentials']['default'])
+        except KeyError:
+            raise MissingConfig
+
+    def destdir(self):
+        try:
+            return Path(self.toml['clone']['destdir']).expanduser()
+        except KeyError:
+            raise MissingConfig
 
     def is_valid(self):
         if not set(self.toml.keys()).issubset(set('bitbucket')):
@@ -67,6 +78,8 @@ class Config:
 
         return True
 
+    def __repr__(self):
+        return "<Config '{}'>".format(self.fname)
 
 class Credentials:
     def __init__(self, credentials):
@@ -79,7 +92,7 @@ class Credentials:
 
         return Credentials(credentials)
 
-    def __str__(self):
+    def __repr__(self):
         return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
 
@@ -111,9 +124,9 @@ class Repo(Auth):
     def __init__(self, full_name, credentials=None):
         super().__init__(credentials)
         self.full_name = full_name
+        self.slug = slug(full_name)
         self.url = self.auth(self.BASE_URL.format(self.full_name))
         logging.debug(self.url)
-        self.localpath = REPO_HOME / slug(self.full_name)
 
     @property
     @lru_cache
@@ -141,10 +154,10 @@ class Repo(Auth):
         return retval
 
     def last_commits(self, max_=3):
-        commits_url = self.url + 'commits'
+        commits_url = self.url + 'commits/'
         result = requests.get(commits_url)
         check_(result)
-        commits = json.loads(result.content)['values']
+        commits = result.json()['values']
         return commits[:3]
 
     def rename(self, new_name):
@@ -163,13 +176,13 @@ class Repo(Auth):
     def delete(self):
         check_(requests.delete(self.url), 204)
 
-    def clone(self, proto='ssh'):
+    def clone(self, destdir, proto='ssh'):
         def dash(*data):
             print('-', end='', flush=True)
 
         url = self.clone_links[proto]
         logging.debug(url)
-        git.Repo.clone_from(url, self.localpath, progress=dash)
+        git.Repo.clone_from(url, destdir, progress=dash)
         print()
 
 class Workspace(Auth):
