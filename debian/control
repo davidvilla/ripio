@@ -8,6 +8,6 @@ Standards-Version: 4.3.0
 
 Package: ripio
 Architecture: all
-Depends: ${misc:Depends}, python3:any
+Depends: ${misc:Depends}, python3:any, python3-git, python3-toml
 Description: Manage hosted git repositories
  Managet git repositories hosted at bitbucket.org
