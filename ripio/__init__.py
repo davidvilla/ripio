@@ -27,14 +27,34 @@ class RemoteError(error):
 class MissingConfig(error): pass
 
 
-def owner(full_name):
-    return full_name.split('/')[0]
+class BadRepositoryName(error): pass
 
-def slug(full_name):
-    if not '/' in full_name:
-        return full_name
+class RepoName:
+    def __init__(self, full_name):
+        if full_name.count('/') > 1:
+            raise BadRepositoryName(full_name)
 
-    return full_name.split('/')[1]
+        self.full_name = full_name.strip().strip('/')
+
+        if '/' in self.full_name:
+            self.owner, self.slug = self.full_name.split('/')
+            return
+
+        self.owner = None
+        self.slug = self.full_name
+
+    def __str__(self):
+        return self.full_name
+
+
+# def owner(full_name):
+#     return full_name.split('/')[0]
+
+# def slug(full_name):
+#     if not '/' in full_name:
+#         return full_name
+
+#     return full_name.split('/')[1]
 
 
 def check_(reply, expected=200):
@@ -95,6 +115,9 @@ class Credentials:
 
         return Credentials(credentials)
 
+    def __eq__(self, other):
+        return (self.username, self.password) == (other.username, other.password)
+
     def __repr__(self):
         return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
@@ -125,9 +148,12 @@ class Repo(Auth):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}/'
 
     def __init__(self, full_name, credentials=None):
+        if not isinstance(full_name, RepoName):
+            full_name = RepoName(full_name)
+
         super().__init__(credentials)
         self.full_name = full_name
-        self.slug = slug(full_name)
+        self.slug = full_name.slug
         self.url = self.auth(self.BASE_URL.format(self.full_name))
         logging.debug(self.url)
 
@@ -164,11 +190,14 @@ class Repo(Auth):
         return commits[:3]
 
     def rename(self, new_name):
+        if not isinstance(new_name, RepoName):
+            new_name = RepoName(new_name)
+
         result = requests.get(self.url)
         if result.status_code == 404:
             raise MissingRepo(self.full_name)
 
-        new_name = slug(new_name)
+        new_name = new_name.slug
 
         result = requests.put(self.url, data={'name':new_name})
         check_(result)
