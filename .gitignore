@@ -5,3 +5,5 @@ ripio.egg-info
 repo.conf
 test/CREDENTIALS
 .noseids
+nosetests.xml
+.vscode/.ropeproject/
