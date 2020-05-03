@@ -32,9 +32,9 @@ def load_config(args):
         config = ripio.Config(home_config)
 
     try:
-        for key in ['credentials', 'destdir']:
+        for key in ['credentials', 'destdir', 'bitbucket']:
             try:
-                setattr(args, key, getattr(config, key)())
+                setattr(args, key, getattr(config, key))
             except ripio.MissingConfig:
                 pass
 
@@ -182,4 +182,6 @@ def run():
     except ripio.error as e:
         print(e)
         print('-- fail')
+        if config.verbosity == 0:
+            print("Try 'ripio -v[v][v]' for more detail")
         sys.exit(1)

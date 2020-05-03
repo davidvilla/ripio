@@ -13,12 +13,17 @@ import requests
 import git
 import toml
 
+from . import utils
 
-class error(Exception): pass
-
-class MissingRepo(error):
+class error(Exception):
     def __str__(self):
-        return "Repository '{}' do not exist".format(self.args[0])
+        msg = self.__class__.__name__
+        if len(self.args):
+            msg += ": {}".format(self.args[0])
+
+        return msg
+
+class RepositoryNotFound(error): pass
 
 class RemoteError(error): pass
 
@@ -35,73 +40,94 @@ class RepoName:
 
         self.full_name = full_name.strip().strip('/')
 
-        if '/' in self.full_name:
+        try:
             self.owner, self.slug = self.full_name.split('/')
-            return
-
-        self.owner = None
-        self.slug = self.full_name
-
-    @classmethod
-    def is_full_name(self, name):
-        return RepoName(name).owner is not None
+        except ValueError:
+            raise BadRepositoryName(full_name)
 
     @classmethod
     def complete(cls, name, config):
-        if cls.is_full_name(name):
+        try:
+            RepoName(name)
             return name
+        except BadRepositoryName:
+            pass
+
+        workspaces = []
 
         try:
-            config.bitbucket.workspaces
+            workspaces.append(config.bitbucket.credentials.default.split(':')[0])
         except AttributeError:
-            raise ConfigError("Config requires key 'bitbucket.workspaces'")
+            pass
 
-        for ws in config.bitbucket.workspaces:
+        try:
+            workspaces.extend(config.bitbucket.workspaces)
+        except AttributeError:
+            pass
+
+        if not workspaces:
+            raise ConfigError("Requires key 'bitbucket.workspaces' to guess a workspaces")
+
+        for ws in workspaces:
             try:
                 full_name = '{}/{}'.format(ws, name)
-                Repo(full_name).data
+                Repo(full_name).data  # FIXME: create mehod 'check'
                 return full_name
-            except MissingRepo:
-                pass
+            except RepositoryNotFound as e:
+                logging.warning(e)
+
+        raise RepositoryNotFound("in any known workspace '{}'".format(
+            str.join(', ', workspaces)))
 
     def __str__(self):
         return self.full_name
 
-def check_(reply, expected=200):
-    if reply.status_code == expected:
+def check_(reply, expected=200, raises=None):
+    raises = raises or {}
+    code = reply.status_code
+    if code == expected:
         return
 
-    if reply.status_code == 404:
-        raise RemoteError('Not found')
+    if code in raises:
+        raise raises[code]
 
     msg = "ERROR {}: {}".format(reply.status_code, reply.reason)
     if not reply.content:
         raise RemoteError(msg)
 
-    if reply.headers.get('Content-Type') != 'application/json':
-        raise RemoteError(reply.text)
+    if 'application/json' not in reply.headers.get('Content-Type'):
+        msg += '\n' + reply.text
+        raise RemoteError(msg)
 
     error = reply.json()['error']
     msg += '\n' + error['message']
     if 'detail' in error:
         msg += '\n' + json.dumps(error['detail'], indent=2)
-        raise RemoteError(msg)
+
+    raise RemoteError(msg)
 
 
 class Config:
     def __init__(self, fname):
         self.fname = fname
         self.toml = toml.load(fname)
+        self.data = utils.dictToObject(self.toml)
 
+    def __getattr__(self, key):
+        return getattr(self.data, key)
+
+    # FIXME: bitubcket supersedes that
+    @property
     def credentials(self):
         try:
-            return Credentials(self.toml['bitbucket']['credentials']['default'])
+            return Credentials(self.bitbucket.credentials.default)
         except KeyError:
             raise MissingConfig
 
+    @property
     def destdir(self):
         try:
-            return Path(self.toml['clone']['destdir']).expanduser()
+            return Path(self.data.clone.destdir).expanduser()
         except KeyError:
             raise MissingConfig
 
@@ -172,7 +198,7 @@ class Repo(Auth):
     def data(self):
         result = requests.get(self.url)
         if result.status_code == 404:
-            raise MissingRepo(self.full_name)
+            raise RepositoryNotFound(self.full_name)
 
         check_(result)
         return result.json()
@@ -203,14 +229,12 @@ class Repo(Auth):
         return commits[:3]
 
     def rename(self, new_name):
-        if not isinstance(new_name, RepoName):
-            new_name = RepoName(new_name)
+        if '/' in new_name:
+            raise error('New name must have no workspace, transfer is not supported')
 
         result = requests.get(self.url)
         if result.status_code == 404:
-            raise MissingRepo(self.full_name)
-
-        new_name = new_name.slug
+            raise RepositoryNotFound(self.full_name)
 
         result = requests.put(self.url, data={'name':new_name})
         check_(result)
@@ -221,7 +245,8 @@ class Repo(Auth):
         check_(requests.post(self.url))
 
     def delete(self):
-        check_(requests.delete(self.url), 204)
+        check_(requests.delete(self.url), 204,
+               raises={404:RepositoryNotFound(self.full_name)})
 
     def clone(self, destdir, proto='ssh'):
         def dash(*data):
@@ -245,7 +270,11 @@ class Workspace(Auth):
             result = requests.get(self.auth(next_link))
             logging.debug(next_link)
             check_(result)
+
             page = result.json()
             next_link = page.get('next')
             for repo in page['values']:
                 yield RepoData(repo)
+
+    def check(self):
+        check_(requests.get(self.auth(self.url)))

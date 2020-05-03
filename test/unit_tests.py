@@ -23,8 +23,25 @@ class WorkspaceTests(TestCase):
         names = [x.slug for x in result]
         self.assertSetEqual(set(names), set(expected))
 
+    def test_ls_missing_workspace(self):
+        cred = ripio.Credentials(CREDENTIALS)
+        ws = ripio.Workspace('ripio-missing-work-space', cred)
+
+        with self.assertRaises(ripio.RemoteError) as e:
+            ws.check()
+            self.assertEquals('ripio-missing-work-space', str(e))
+
 
 class RepoTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        for r in ['removable to-delete']:
+            name = 'ripio-test/{}'.format(r)
+            try:
+                ripio.Repo(name, ripio.Credentials(CREDENTIALS)).delete()
+            except ripio.RepositoryNotFound:
+                pass
+
     def test_head(self):
         repo = ripio.Repo('ripio-test/repo0')
         result = repo.last_commits()[0]['message']
@@ -39,11 +56,16 @@ class RepoTests(TestCase):
     def test_create_rename_delete(self):
         repo = ripio.Repo('ripio-test/removable', ripio.Credentials(CREDENTIALS))
         repo.create()
-        repo.rename(ripio.RepoName('to-delete'))
+        repo.rename('to-delete')
 
         repo = ripio.Repo('ripio-test/to-delete', ripio.Credentials(CREDENTIALS))
         repo.delete()
         time.sleep(1)
+
+    def test_delete_missing(self):
+        repo = ripio.Repo('ripio-test/missing', ripio.Credentials(CREDENTIALS))
+        with self.assertRaises(ripio.RepositoryNotFound):
+            repo.delete()
 
 
 class CompleterTests(TestCase):
@@ -63,7 +85,6 @@ class CompleterTests(TestCase):
             ripio.RepoName.complete('repo0', ns)
 
 
-
 class ConfigTests(TestCase):
     def test_empty(self):
         sut = ripio.Config('test/fixtures/empty.conf')
@@ -71,5 +92,11 @@ class ConfigTests(TestCase):
 
     def test_bitbucket_credentials(self):
         sut = ripio.Config('test/fixtures/bitbucket.conf')
-        result = sut.credentials()
+        result = sut.credentials
         self.assertEquals(result, ripio.Credentials('john.doe:secret'))
+
+    def test_username_included_as_workspace_by_default(self):
+        sut = ripio.Config('test/fixtures/bitbucket.conf')
+        result = sut.bitbucket.workspaces
+        expected = set(['ripio-test', 'DavidVilla'])
+        self.assertEquals(set(result), expected)
