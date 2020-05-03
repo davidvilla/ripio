@@ -20,12 +20,11 @@ class MissingRepo(error):
     def __str__(self):
         return "Repository '{}' do not exist".format(self.args[0])
 
-class RemoteError(error):
-    def __str__(self):
-        return self.args[0]
+class RemoteError(error): pass
+
+class ConfigError(error): pass
 
 class MissingConfig(error): pass
-
 
 class BadRepositoryName(error): pass
 
@@ -43,19 +42,30 @@ class RepoName:
         self.owner = None
         self.slug = self.full_name
 
+    @classmethod
+    def is_full_name(self, name):
+        return RepoName(name).owner is not None
+
+    @classmethod
+    def complete(cls, name, config):
+        if cls.is_full_name(name):
+            return name
+
+        try:
+            config.bitbucket.workspaces
+        except AttributeError:
+            raise ConfigError("Config requires key 'bitbucket.workspaces'")
+
+        for ws in config.bitbucket.workspaces:
+            try:
+                full_name = '{}/{}'.format(ws, name)
+                Repo(full_name).data
+                return full_name
+            except MissingRepo:
+                pass
+
     def __str__(self):
         return self.full_name
-
-
-# def owner(full_name):
-#     return full_name.split('/')[0]
-
-# def slug(full_name):
-#     if not '/' in full_name:
-#         return full_name
-
-#     return full_name.split('/')[1]
-
 
 def check_(reply, expected=200):
     if reply.status_code == expected:
@@ -161,6 +171,9 @@ class Repo(Auth):
     @lru_cache
     def data(self):
         result = requests.get(self.url)
+        if result.status_code == 404:
+            raise MissingRepo(self.full_name)
+
         check_(result)
         return result.json()
 

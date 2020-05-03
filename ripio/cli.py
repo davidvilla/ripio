@@ -71,15 +71,15 @@ def confirm_irrecoverable_operation():
                  valid_answers=['YES'])
 
 
-def cmd_print_repos(args):
-    ws = ripio.Workspace(args.owner, args.credentials)
+def cmd_print_repos(config):
+    ws = ripio.Workspace(config.owner, config.credentials)
     for i, repo in enumerate(ws.ls_repos()):
         print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
             i+1, to_kb(repo.size), repo))
 
 
-def cmd_print_head(args):
-    repo = ripio.Repo(args.repo, args.credentials)
+def cmd_print_head(config):
+    repo = ripio.Repo(config.repo, config.credentials)
     commits = repo.last_commits()
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
@@ -90,38 +90,39 @@ def cmd_print_head(args):
             c['date'], c['author']['raw'], c['message'].strip()))
 
 
-def cmd_repo_rename(args):
-    repo = ripio.Repo(args.repo, args.credentials)
-    new_name = repo.rename(args.new_name)
+def cmd_repo_rename(config):
+    repo = ripio.Repo(config.repo, config.credentials)
+    new_name = repo.rename(config.new_name)
     print("Repository '{}' renamed as '{}/{}'".format(
         repo.full_name, repo.full_name.owner, new_name))
 
 
-def cmd_repo_create(args):
-    assert args.credentials
-    repo = ripio.Repo(args.repo, args.credentials)
+def cmd_repo_create(config):
+    assert config.credentials
+    repo = ripio.Repo(config.repo, config.credentials)
     repo.create()
-    print("Repository '{}' created".format(args.repo))
+    print("Repository '{}' created".format(config.repo))
 
 
-def cmd_repo_delete(args):
-    assert args.credentials
+def cmd_repo_delete(config):
+    assert config.credentials
     confirm_irrecoverable_operation()
-    repo = ripio.Repo(args.repo, args.credentials)
+    repo = ripio.Repo(config.repo, config.credentials)
     print("Deleting '{}'".format(repo.full_name))
     repo.delete()
 
 
-def cmd_repo_clone(args):
-    repo = ripio.Repo(args.repo, args.credentials)
-    destdir = args.destdir / repo.slug
+def cmd_repo_clone(config):
+    full_name = ripio.RepoName.complete(config.repo, config)
+    repo = ripio.Repo(full_name, config.credentials)
+    destdir = config.destdir / repo.slug
     print("Cloning({}) '{}' to '{}'".format(
-        args.proto, repo.full_name, destdir))
-    repo.clone(destdir, args.proto)
+        config.proto, repo.full_name, destdir))
+    repo.clone(destdir, config.proto)
 
 
-def cmd_show_config(args):
-    config = vars(args)
+def cmd_show_config(config):
+    config = vars(config)
     del config['func']
     pprint(config)
 
@@ -140,25 +141,21 @@ def run():
 
     parser_head = cmds.add_parser('head', help='show last commits')
     parser_head.set_defaults(func=cmd_print_head)
-    parser_head.add_argument('repo', type=ripio.RepoName,
-                            help='repo fullname: owner/slug')
+    parser_head.add_argument('repo', help='repo fullname: owner/slug')
 
     parser_rename = cmds.add_parser('rename', help='rename repository')
     parser_rename.set_defaults(func=cmd_repo_rename)
-    parser_rename.add_argument('repo', type=ripio.RepoName,
-                               help='repo fullname: owner/slug')
-    parser_rename.add_argument('new_name', type=ripio.RepoName,
-                               metavar='new-name', help='new repository name')
+    parser_rename.add_argument('repo', help='repo fullname: owner/slug')
+    parser_rename.add_argument('new_name', metavar='new-name',
+                               help='new repository name')
 
     parser_create = cmds.add_parser('create', help='create new repository')
     parser_create.set_defaults(func=cmd_repo_create)
-    parser_create.add_argument('repo', type=ripio.RepoName,
-                               help='repo fullname: owner/slug')
+    parser_create.add_argument('repo', help='repo fullname: owner/slug')
 
     parser_delete = cmds.add_parser('delete', help='delete a repository')
     parser_delete.set_defaults(func=cmd_repo_delete)
-    parser_delete.add_argument('repo', type=ripio.RepoName,
-                               help='repo fullname: owner/slug')
+    parser_delete.add_argument('repo', help='repo fullname: owner/slug')
 
     parser_clone = cmds.add_parser('clone', help='clone a repository')
     parser_clone.set_defaults(func=cmd_repo_clone)
@@ -167,22 +164,21 @@ def run():
                             help='Use HTTP instead of SSH')
     parser_clone.add_argument('--destdir', default=Path.cwd(), type=Path,
                               help='directory where save repository')
-    parser_clone.add_argument('repo', type=ripio.RepoName,
-                              help='repo fullname: owner/slug')
+    parser_clone.add_argument('repo', help='repo fullname: owner/slug')
 
     parser_config = cmds.add_parser('config', help='show config')
     parser_config.set_defaults(func=cmd_show_config)
 
-    args = parser.parse_args()
-    set_verbosity(args)
-    load_config(args)
+    config = parser.parse_args()
+    set_verbosity(config)
+    load_config(config)
 
-    if not hasattr(args, 'func'):
+    if not hasattr(config, 'func'):
         parser.print_help()
         sys.exit(1)
 
     try:
-        args.func(args)
+        config.func(config)
         print('-- ok')
     except ripio.error as e:
         print(e)

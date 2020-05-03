@@ -1,4 +1,5 @@
 import time
+from argparse import Namespace
 from unittest import TestCase
 
 import ripio
@@ -22,6 +23,8 @@ class WorkspaceTests(TestCase):
         names = [x.slug for x in result]
         self.assertSetEqual(set(names), set(expected))
 
+
+class RepoTests(TestCase):
     def test_head(self):
         repo = ripio.Repo('ripio-test/repo0')
         result = repo.last_commits()[0]['message']
@@ -41,6 +44,25 @@ class WorkspaceTests(TestCase):
         repo = ripio.Repo('ripio-test/to-delete', ripio.Credentials(CREDENTIALS))
         repo.delete()
         time.sleep(1)
+
+
+class CompleterTests(TestCase):
+    def test_fullname(self):
+        name = ripio.RepoName.complete('ripio-test/repo0', None)
+        self.assertEquals(name, 'ripio-test/repo0')
+
+    def test_slug(self):
+        ns = Namespace()
+        ns.bitbucket = Namespace(workspaces=['DavidVilla', 'ripio-test'])
+        name = ripio.RepoName.complete('repo0', ns)
+        self.assertEquals(name, 'ripio-test/repo0')
+
+    def test_no_workspaces_in_config(self):
+        ns = Namespace()
+        with self.assertRaises(ripio.ConfigError):
+            ripio.RepoName.complete('repo0', ns)
+
+
 
 class ConfigTests(TestCase):
     def test_empty(self):
