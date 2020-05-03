@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from pprint import pprint
 
-import toml
 import ripio
 
 
