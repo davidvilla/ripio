@@ -107,6 +107,14 @@ def check_(reply, expected=200, raises=None):
     raise RemoteError(msg)
 
 
+def origin_to_fullname(origin):
+    path = origin.rstrip('.git')
+    if path.startswith('git@'):
+        return path.split(':')[1]
+    elif path.startswith('https://'):
+        return path.split('/', 3)[-1]
+
+
 class Config:
     def __init__(self, fname):
         self.fname = fname
@@ -193,6 +201,13 @@ class Repo(Auth):
         self.url = self.auth(self.BASE_URL.format(self.full_name))
         logging.debug(self.url)
 
+    @classmethod
+    def from_dir(cls, dirname, credentials=None):
+        origin = git.Repo(Path.cwd()).remote().url
+        logging.debug(origin)
+        full_name = origin_to_fullname(origin)
+        return cls(full_name, credentials)
+
     @property
     @lru_cache
     def data(self):
@@ -220,6 +235,11 @@ class Repo(Auth):
         for link in self.data['links']['clone']:
             retval[link['name']] = link['href']
         return retval
+
+    @property
+    @lru_cache
+    def webpage(self):
+        return self.data['links']['html']['href']
 
     def last_commits(self, max_=3):
         commits_url = self.url + 'commits/'

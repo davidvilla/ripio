@@ -6,6 +6,8 @@ function ian-release-hook() {
     log-info "setting version to $version"
     sc-assert-files-exist version.py
     echo "__version__ = '$version'" > version.py
+
+    version-summary
 }
 
 function ian-clean-hook {

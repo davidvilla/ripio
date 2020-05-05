@@ -100,3 +100,25 @@ class ConfigTests(TestCase):
         result = sut.bitbucket.workspaces
         expected = set(['ripio-test', 'DavidVilla'])
         self.assertEquals(set(result), expected)
+
+
+class URL_Tests(TestCase):
+    def test_bitbucket_ssh(self):
+        result = ripio.origin_to_fullname(
+            'git@bitbucket.org:DavidVilla/ripio.git')
+        self.assertEquals(result, 'DavidVilla/ripio')
+
+    def test_bitbucket_https(self):
+        result = ripio.origin_to_fullname(
+            'https://bitbucket.org/DavidVilla/ripio.git')
+        self.assertEquals(result, 'DavidVilla/ripio')
+
+    def test_github_ssh(self):
+        result = ripio.origin_to_fullname(
+            'git@ithub.com:davidvilla/python-doublex.git')
+        self.assertEquals(result, 'davidvilla/python-doublex')
+
+    def test_github_https(self):
+        result = ripio.origin_to_fullname(
+            'https://github.com/davidvilla/python-doublex.git')
+        self.assertEquals(result, 'davidvilla/python-doublex')

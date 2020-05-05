@@ -24,6 +24,7 @@ from setuptools import setup, find_packages
 def local_open(fname):
     return open(os.path.join(os.path.dirname(__file__), fname))
 
+
 with open("README.md", "r") as readme:
     long_description = readme.read()
 
@@ -44,4 +45,5 @@ setup(name         = 'ripio',
       long_description_content_type="text/markdown",
       classifiers=[
         "Programming Language :: Python :: 3",
-      ])
+      ]
+)

@@ -5,6 +5,7 @@ import argparse
 import logging
 from pathlib import Path
 from pprint import pprint
+import webbrowser
 
 import ripio
 
@@ -31,14 +32,14 @@ def load_config(args):
     elif home_config.exists():
         config = ripio.Config(home_config)
 
+    logging.debug("Loading config '{}'".format(config.fname))
+
     try:
         for key in ['credentials', 'destdir', 'bitbucket']:
             try:
                 setattr(args, key, getattr(config, key))
             except ripio.MissingConfig:
                 pass
-
-        logging.debug("Config '{}' loaded".format(args.config))
 
     except FileNotFoundError as e:
         logging.error(e)
@@ -47,10 +48,6 @@ def load_config(args):
 def canceled():
     print('-- canceled')
     sys.exit(1)
-
-
-# def dash_strip(repo):
-#     return repo.strip('/')
 
 
 def user_confirm(text, valid_answers):
@@ -78,7 +75,8 @@ def cmd_print_repos(config):
 
 
 def cmd_print_head(config):
-    repo = ripio.Repo(config.repo, config.credentials)
+    full_name = ripio.RepoName.complete(config.repo, config)
+    repo = ripio.Repo(full_name, config.credentials)
     commits = repo.last_commits()
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
@@ -126,6 +124,12 @@ def cmd_show_config(config):
     pprint(config)
 
 
+def cmd_site(config):
+    url = ripio.Repo.from_dir(Path.cwd(), config.credentials).webpage
+    print("Openning '{}'".format(url))
+    webbrowser.open(url)
+
+
 def run():
     parser = argparse.ArgumentParser(description='Manage hosted git repositories')
     parser.add_argument('--config', help='alternate config file')
@@ -167,6 +171,10 @@ def run():
 
     parser_config = cmds.add_parser('config', help='show config')
     parser_config.set_defaults(func=cmd_show_config)
+
+    parser_site = cmds.add_parser('site', help='open webpage for the current repository')
+    parser_site.set_defaults(func=cmd_site)
+
 
     config = parser.parse_args()
     set_verbosity(config)
