@@ -20,6 +20,7 @@ def set_verbosity(args):
     level = logging.ERROR - 10 * min(args.verbosity, 3)
     if level != logging.ERROR:
         print("Verbosity set to {}".format(logging.getLevelName(level)))
+        print("Try 'ripio -vvv' for even more detail")
     logging.getLogger().setLevel(level)
 
 
@@ -35,11 +36,15 @@ def load_config(args):
     logging.debug("Loading config '{}'".format(config.fname))
 
     try:
-        for key in ['credentials', 'destdir', 'bitbucket']:
+        for key in ['destdir', 'bitbucket', 'github']:
             try:
                 setattr(args, key, getattr(config, key))
             except ripio.MissingConfig:
                 pass
+
+        args.credentials = {
+            'bitbucket': config.get_credentials('bitbucket'),
+            'github':    config.get_credentials('github')}
 
     except FileNotFoundError as e:
         logging.error(e)
@@ -67,8 +72,15 @@ def confirm_irrecoverable_operation():
                  valid_answers=['YES'])
 
 
-def cmd_print_repos(config):
-    ws = ripio.Workspace(config.owner, config.credentials)
+def cmd_ls_repos(config):
+    ws_name = ripio.WorkspaceName(config.owner)
+    if ws_name.site == 'bitbucket':
+        ws = ripio.BitbucketWorkspace(ws_name, config.credentials.get('bitbucket'))
+    elif ws_name.site == 'github':
+        ws = ripio.GithubWorkspace(ws_name, config.credentials.get('github'))
+    else:
+        raise ripio.UnsupportedSite(ws_name.site)
+
     for i, repo in enumerate(ws.ls_repos()):
         print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
             i+1, to_kb(repo.size), repo))
@@ -76,19 +88,19 @@ def cmd_print_repos(config):
 
 def cmd_print_head(config):
     full_name = ripio.RepoName.complete(config.repo, config)
-    repo = ripio.Repo(full_name, config.credentials)
+    repo = ripio.BitbucketRepo(full_name, config.credentials)
     commits = repo.last_commits()
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
         return
 
     for c in commits:
-        print("{} - {}\n\t{}\n".format(
-            c['date'], c['author']['raw'], c['message'].strip()))
+        print("-- {}\n   {}\n   {}\n\n   {}".format(
+            c['hash'], c['author']['raw'], c['date'], c['message']))
 
 
 def cmd_repo_rename(config):
-    repo = ripio.Repo(config.repo, config.credentials)
+    repo = ripio.BitbucketRepo(config.repo, config.credentials)
     new_name = repo.rename(config.new_name)
     print("Repository '{}' renamed as '{}/{}'".format(
         repo.full_name, repo.full_name.owner, new_name))
@@ -96,22 +108,33 @@ def cmd_repo_rename(config):
 
 def cmd_repo_create(config):
     assert config.credentials
-    repo = ripio.Repo(config.repo, config.credentials)
-    repo.create()
-    print("Repository '{}' created".format(config.repo))
+    name = ripio.RepoName(config.repo)
+    print(name.site)
+    print(name.full_name)
+
+    if name.site == 'bitbucket':
+        repo = ripio.BitbucketRepo(name, config.credentials.get('bitbucket'))
+    elif name.site == 'github':
+        repo = ripio.GithubRepo(name, config.credentials.get('github'))
+    else:
+        raise ripio.UnsupportedSite(name.site)
+
+    name = repo.create()
+    print("Repository '{}' created".format(name))
 
 
 def cmd_repo_delete(config):
     assert config.credentials
+    repo = ripio.BitbucketRepo(config.repo, config.credentials)
+    repo.check()
     confirm_irrecoverable_operation()
-    repo = ripio.Repo(config.repo, config.credentials)
     print("Deleting '{}'".format(repo.full_name))
     repo.delete()
 
 
 def cmd_repo_clone(config):
     full_name = ripio.RepoName.complete(config.repo, config)
-    repo = ripio.Repo(full_name, config.credentials)
+    repo = ripio.BitbucketRepo(full_name, config.credentials)
     destdir = config.destdir / repo.slug
     print("Cloning({}) '{}' to '{}'".format(
         config.proto, repo.full_name, destdir))
@@ -125,21 +148,41 @@ def cmd_show_config(config):
 
 
 def cmd_site(config):
-    url = ripio.Repo.from_dir(Path.cwd(), config.credentials).webpage
+    url = ripio.BitbucketRepo.from_dir(Path.cwd(), config.credentials).webpage
     print("Openning '{}'".format(url))
     webbrowser.open(url)
 
 
 def run():
-    parser = argparse.ArgumentParser(description='Manage hosted git repositories')
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
+        description='''\
+Manage hosted git repositories.
+General repository name format is: 'site:owner/name'.
+Examples:
+- 'github:twitter/wordpress' or 'gh:twitter/wordpress'
+- 'bitbucket:paypal/exmaple' or 'bb:paypal/exmaple'
+
+Abbreviated names are allowed when suitable configuration is given.
+''')
+
     parser.add_argument('--config', help='alternate config file')
     parser.add_argument('-c', '--credentials', type=ripio.Credentials.make,
                         help="authentication credentials with 'user:pass' format")
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='verbosity level. -v:INFO, -vv:DEBUG')
     cmds = parser.add_subparsers()
-    parser_ls = cmds.add_parser('ls', help='list repositories')
-    parser_ls.set_defaults(func=cmd_print_repos)
+    parser_ls = cmds.add_parser(
+        'ls', help='list repositories',
+        formatter_class=argparse.RawTextHelpFormatter,
+        description='''\
+General workspace format is: 'site:name'.
+Examples:
+- 'github:twitter'   or 'gh:twitter'
+- 'bitbucket:paypal' or 'bb:paypal'
+
+Abbreviated names are allowed when suitable configuration is given.
+''')
+    parser_ls.set_defaults(func=cmd_ls_repos)
     parser_ls.add_argument('owner', help='team or user')
 
     parser_head = cmds.add_parser('head', help='show last commits')
@@ -186,10 +229,20 @@ def run():
 
     try:
         config.func(config)
+    except ripio.error as e:
+        if config.verbosity == 0:
+            print("Try 'ripio -v' for detail")
+        raise
+
+
+def main2():
+    try:
+        run()
         print('-- ok')
     except ripio.error as e:
         print(e)
         print('-- fail')
-        if config.verbosity == 0:
-            print("Try 'ripio -v[v][v]' for more detail")
         sys.exit(1)
+
+def main():
+    run()

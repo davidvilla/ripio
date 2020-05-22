@@ -15,6 +15,8 @@ import toml
 
 from . import utils
 
+PROGNAME = 'ripio'
+
 class error(Exception):
     def __str__(self):
         msg = self.__class__.__name__
@@ -22,6 +24,9 @@ class error(Exception):
             msg += ": {}".format(self.args[0])
 
         return msg
+
+    def detail(self, msg):
+        return "\n- " + msg
 
 class RepositoryNotFound(error): pass
 
@@ -33,17 +38,57 @@ class MissingConfig(error): pass
 
 class BadRepositoryName(error): pass
 
-class RepoName:
-    def __init__(self, full_name):
-        if full_name.count('/') > 1:
-            raise BadRepositoryName(full_name)
+class BadWorkspaceName(error):
+    def __str__(self):
+        return super().__str__() + \
+            self.detail("See '{} ls -h' for help".format(PROGNAME))
 
-        self.full_name = full_name.strip().strip('/')
+class UnsupportedSite(error): pass
+
+
+class WorkspaceName:
+    def __init__(self, full_workspace, site=None):
+        if full_workspace.count(':') > 1 or '/' in full_workspace:
+            raise BadWorkspaceName(full_workspace)
 
         try:
-            self.owner, self.slug = self.full_name.split('/')
+            self.site, self.workspace = full_workspace.split(':')
         except ValueError:
-            raise BadRepositoryName(full_name)
+            if site is None:
+                raise BadWorkspaceName(full_workspace)
+
+            self.site = site
+            self.workspace = full_workspace
+
+        abbrevs = {'bb': 'bitbucket', 'gh': 'github'}
+        if self.site in abbrevs:
+            self.site = abbrevs[self.site]
+
+    def __repr__(self):
+        return "<WorkspaceName '{}:{}'>".format(self.site, self.workspace)
+
+
+class RepoName:
+    def __init__(self, site_full_name, site=None):
+        if site_full_name.count('/') != 1:
+            raise BadRepositoryName(site_full_name)
+
+        try:
+            self.owner, self.slug = site_full_name.split('/')
+        except ValueError:
+            raise BadRepositoryName(site_full_name)
+
+        self.owner = WorkspaceName(self.owner, site=site)
+        self.site = self.owner.site
+        self.full_name = '{}/{}'.format(self.owner.workspace, self.slug)
+        self.global_name = '{}:{}'.format(self.site, self.full_name)
+
+    @classmethod
+    def cast(cls, name, site):
+        if isinstance(name, RepoName):
+            return name
+
+        return RepoName(name, site)
 
     @classmethod
     def complete(cls, name, config):
@@ -71,7 +116,7 @@ class RepoName:
         for ws in workspaces:
             try:
                 full_name = '{}/{}'.format(ws, name)
-                Repo(full_name).data  # FIXME: create mehod 'check'
+                BitbucketRepo(full_name).check()
                 return full_name
             except RepositoryNotFound as e:
                 logging.warning(e)
@@ -82,7 +127,8 @@ class RepoName:
     def __str__(self):
         return self.full_name
 
-def check_(reply, expected=200, raises=None):
+
+def _common_check(reply, expected, raises):
     raises = raises or {}
     code = reply.status_code
     if code == expected:
@@ -95,14 +141,41 @@ def check_(reply, expected=200, raises=None):
     if not reply.content:
         raise RemoteError(msg)
 
-    if 'application/json' not in reply.headers.get('Content-Type'):
-        msg += '\n' + reply.text
+    return msg
+
+def bb_check(reply, expected=200, raises=None):
+    msg = _common_check(reply, expected, raises)
+    if msg is None:
+        return
+
+    content_type = reply.headers.get('Content-Type')
+    logging.debug("Reply Content-Type: '{}'".format(content_type))
+
+    if 'application/json' not in content_type:
+        if 'text/html' not in content_type:
+            msg += '\n' + reply.text
         raise RemoteError(msg)
 
     error = reply.json()['error']
     msg += '\n' + error['message']
     if 'detail' in error:
         msg += '\n' + json.dumps(error['detail'], indent=2)
+
+    raise RemoteError(msg)
+
+
+def gh_check(reply, expected=200, raises=None):
+    msg = _common_check(reply, expected, raises)
+    if msg is None:
+        return
+
+    reply_json = reply.json()
+    print(reply_json)
+
+    if 'message' in reply_json:
+        msg += '\n' + reply_json['message']
+    if 'errors' in reply_json:
+        msg += '\n' + reply_json['errors'][0]['message']
 
     raise RemoteError(msg)
 
@@ -124,11 +197,18 @@ class Config:
     def __getattr__(self, key):
         return getattr(self.data, key)
 
-    # FIXME: bitubcket supersedes that
-    @property
-    def credentials(self):
+    # # FIXME: bitbucket supersedes that
+    # @property
+    # def credentials(self):
+    #     try:
+    #         return Credentials(self.bitbucket.credentials.default)
+    #     except KeyError:
+    #         raise MissingConfig
+
+    def get_credentials(self, site):
         try:
-            return Credentials(self.bitbucket.credentials.default)
+            site = getattr(self, site)
+            return Credentials(site.credentials.default)
         except KeyError:
             raise MissingConfig
 
@@ -179,25 +259,62 @@ class Auth:
         return urlunparse(parts._replace(netloc=user_pass + parts.netloc))
 
 
-class RepoData:
-    def __init__(self, data):
-        self.scm = data['scm']
-        self.slug = data['slug']
-        self.full_name = data['full_name']
-        self.size = data['size']
-        self.access = 'private' if data['is_private'] else 'public'
+class GithubRepo(Auth):
+    BASE_URL = 'https://api.github.com/orgs/{}/repos'
 
-
-class Repo(Auth):
-    BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}/'
-
-    def __init__(self, full_name, credentials=None):
-        if not isinstance(full_name, RepoName):
-            full_name = RepoName(full_name)
+    # FIXME: refactor superclass
+    def __init__(self, name, credentials=None):
+        name = RepoName.cast(name, site='github')
 
         super().__init__(credentials)
-        self.full_name = full_name
-        self.slug = full_name.slug
+        self.basic_data = dict(
+            full_name = name.full_name,
+            slug = name.slug)
+
+        self.url = self.auth(self.BASE_URL.format(name.owner.workspace))
+
+    @classmethod
+    def from_data(cls, data, credentials=None):
+        instance = cls(data['full_name'], credentials)
+        instance.basic_data = dict(
+            scm = 'git',
+            slug = data['name'],
+            full_name = data['full_name'],
+            size = data['size'],
+            access = 'private' if data['private'] else 'public')
+        return instance
+
+    # FIXME: refactor superclass
+    def __getattr__(self, attr):
+        assert attr in 'scm slug full_name size access'.split()
+
+        try:
+            return self.basic_data[attr]
+        except KeyError:
+            return self.data[attr]
+
+    def create(self):
+        logging.debug(self.url)
+
+        result = requests.post(
+            self.url,
+            data=json.dumps({'name':self.slug, 'private': True}))
+        gh_check(result, 201)
+        real_name = result.json()['full_name']
+        return real_name
+
+
+class BitbucketRepo(Auth):
+    BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}/'
+
+    def __init__(self, name, credentials=None):
+        name = RepoName.cast(name, site='bitbucket')
+
+        super().__init__(credentials)
+        self.basic_data = dict(
+            full_name = name.full_name,
+            slug = name.slug)
+
         self.url = self.auth(self.BASE_URL.format(self.full_name))
         logging.debug(self.url)
 
@@ -208,6 +325,28 @@ class Repo(Auth):
         full_name = origin_to_fullname(origin)
         return cls(full_name, credentials)
 
+    @classmethod
+    def from_data(cls, data, credentials=None):
+        instance = cls(data['full_name'], credentials)
+        instance.basic_data = dict(
+            scm = data['scm'],
+            slug = data['slug'],
+            full_name = data['full_name'],
+            size = data['size'],
+            access = 'private' if data['is_private'] else 'public')
+        return instance
+
+    def __getattr__(self, attr):
+        assert attr in 'scm slug full_name size access'.split()
+
+        try:
+            return self.basic_data[attr]
+        except KeyError:
+            return self.data[attr]
+
+    def check(self):
+        self.data
+
     @property
     @lru_cache
     def data(self):
@@ -215,13 +354,14 @@ class Repo(Auth):
         if result.status_code == 404:
             raise RepositoryNotFound(self.full_name)
 
-        check_(result)
+        bb_check(result)
         return result.json()
 
     @property
     @lru_cache
     def clone_links(self):
-        '''"clone": [
+        '''Example:
+           "clone": [
             {
                 "href": "https://bitbucket.org/repo-test/repo11.git",
                 "name": "https"
@@ -244,7 +384,7 @@ class Repo(Auth):
     def last_commits(self, max_=3):
         commits_url = self.url + 'commits/'
         result = requests.get(commits_url)
-        check_(result)
+        bb_check(result)
         commits = result.json()['values']
         return commits[:3]
 
@@ -256,16 +396,17 @@ class Repo(Auth):
         if result.status_code == 404:
             raise RepositoryNotFound(self.full_name)
 
+        # FIXME: this is required also on create
         result = requests.put(self.url, data={'name':new_name})
-        check_(result)
+        bb_check(result)
         real_name = result.headers['Location'].split('/')[-1]
         return real_name
 
     def create(self):
-        check_(requests.post(self.url))
+        bb_check(requests.post(self.url))
 
     def delete(self):
-        check_(requests.delete(self.url), 204,
+        bb_check(requests.delete(self.url), 204,
                raises={404:RepositoryNotFound(self.full_name)})
 
     def clone(self, destdir, proto='ssh'):
@@ -277,7 +418,8 @@ class Repo(Auth):
         git.Repo.clone_from(url, destdir, progress=dash)
         print()
 
-class Workspace(Auth):
+
+class BitbucketWorkspace(Auth):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
 
     def __init__(self, workspace, credentials):
@@ -287,14 +429,47 @@ class Workspace(Auth):
     def ls_repos(self):
         next_link = self.url
         while next_link is not None:
-            result = requests.get(self.auth(next_link))
+            next_link = self.auth(next_link)
+            result = requests.get(next_link)
             logging.debug(next_link)
-            check_(result)
+            bb_check(result)
 
             page = result.json()
             next_link = page.get('next')
             for repo in page['values']:
-                yield RepoData(repo)
+                yield BitbucketRepo.from_data(repo, self.credentials)
 
     def check(self):
-        check_(requests.get(self.auth(self.url)))
+        bb_check(requests.get(self.auth(self.url)))
+
+
+class GithubWorkspace(Auth):
+    BASE_ORG_URL = 'https://api.github.com/orgs/{}/repos'
+
+    def __init__(self, name, credentials):
+        super().__init__(credentials)
+        if not isinstance(name, WorkspaceName):
+            name = WorkspaceName(name)
+
+        print(credentials)
+        self.url = self.BASE_ORG_URL.format(name.workspace)
+
+    def ls_repos(self):
+        def get_next_link(result):
+            try:
+                return result.links['next']['url']
+            except KeyError:
+                return None
+
+        next_link = self.url
+        while next_link is not None:
+            next_link = self.auth(next_link)
+            result = requests.get(next_link)
+            logging.debug(next_link)
+            gh_check(result)
+
+            page = result.json()
+            next_link = get_next_link(result)
+
+            for repo in page:
+                yield GithubRepo.from_data(repo, self.credentials)

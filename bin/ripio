@@ -6,4 +6,4 @@ sys.path.insert(0, '.')
 
 from ripio import cli
 
-cli.run()
+cli.main()
