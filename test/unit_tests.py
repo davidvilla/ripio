@@ -103,7 +103,10 @@ class GithubRepoTests(TestCase):
         result = list(repo.last_commits())[0]['message']
         self.assertIn('last-commit-message', result)
 
-    # FIXME: test_head_empty_repo
+    def test_head_empty_repo(self):
+        repo = ripio.GithubRepo('ripio-test/empty', self.credentials)
+        result = list(repo.last_commits())
+        self.assertEquals(result, [])
 
     def test_create_delete(self):
         repo = ripio.GithubRepo('ripio-test/removable', self.credentials)
