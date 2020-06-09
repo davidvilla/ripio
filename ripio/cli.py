@@ -86,46 +86,48 @@ def cmd_ls_repos(config):
             i+1, to_kb(repo.size), repo))
 
 
-def cmd_print_head(config):
-    full_name = ripio.RepoName.complete(config.repo, config)
-    repo = ripio.BitbucketRepo(full_name, config.credentials)
-    commits = repo.last_commits()
-    if not commits:
-        print("-- repository '{}' is empty".format(repo.full_name))
-        return
-
-    for c in commits:
-        print("-- {}\n   {}\n   {}\n\n   {}".format(
-            c['hash'], c['author']['raw'], c['date'], c['message']))
-
-
-def cmd_repo_rename(config):
-    repo = ripio.BitbucketRepo(config.repo, config.credentials)
-    new_name = repo.rename(config.new_name)
-    print("Repository '{}' renamed as '{}/{}'".format(
-        repo.full_name, repo.full_name.owner, new_name))
-
-
-def cmd_repo_create(config):
+def get_repo(config):
     assert config.credentials
     name = ripio.RepoName(config.repo)
     print(name.site)
     print(name.full_name)
 
     if name.site == 'bitbucket':
-        repo = ripio.BitbucketRepo(name, config.credentials.get('bitbucket'))
+        return ripio.BitbucketRepo(name, config.credentials.get('bitbucket'))
     elif name.site == 'github':
-        repo = ripio.GithubRepo(name, config.credentials.get('github'))
-    else:
-        raise ripio.UnsupportedSite(name.site)
+        return ripio.GithubRepo(name, config.credentials.get('github'))
+    
+    raise ripio.UnsupportedSite(name.site)
 
+
+def cmd_print_head(config):
+    # full_name = ripio.RepoName.complete(config.repo, config)
+    repo = get_repo(config)
+    commits = list(repo.last_commits())
+    if not commits:
+        print("-- repository '{}' is empty".format(repo.full_name))
+        return
+
+    for c in commits:
+        print("-- {}\n   {}\n   {}\n\n   {}".format(
+            c['hash'], c['author'], c['date'], c['message']))
+
+
+def cmd_repo_rename(config):
+    repo = get_repo(config)
+    new_name = repo.rename(config.new_name)
+    print("Repository '{}' renamed as '{}/{}'".format(
+        repo.name.full_name, repo.name.owner.workspace, new_name))
+
+
+def cmd_repo_create(config):
+    repo = get_repo(config)
     name = repo.create()
     print("Repository '{}' created".format(name))
 
 
 def cmd_repo_delete(config):
-    assert config.credentials
-    repo = ripio.BitbucketRepo(config.repo, config.credentials)
+    repo = get_repo(config)
     repo.check()
     confirm_irrecoverable_operation()
     print("Deleting '{}'".format(repo.full_name))

@@ -1,1 +1,11 @@
 - ripio head <missing-repo> prints whole webpage.
+
+Traceback (most recent call last):
+  File "/usr/bin/ripio", line 9, in <module>
+    cli.run()
+  File "/usr/lib/python3/dist-packages/ripio/cli.py", line 173, in run
+    load_config(config)
+  File "/usr/lib/python3/dist-packages/ripio/cli.py", line 37, in load_config
+    setattr(args, key, getattr(config, key))
+AttributeError: 'NoneType' object has no attribute 'credentials'
+
