@@ -233,123 +233,6 @@ class Repo(Auth):
         return True
 
 
-class GithubRepo(Repo):
-    BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
-    CREATE_URL = 'https://api.github.com/orgs/{org}/repos'
-
-    # FIXME: refactor superclass
-    def __init__(self, name, credentials=None):
-        self.name = RepoName.cast(name, site='github')
-
-        super().__init__(credentials)
-        self.basic_data = dict(
-            full_name = self.name.full_name,
-            slug = self.name.slug)
-
-        self.url = self.auth(self.BASE_URL.format(
-            owner=self.name.owner.workspace, repo=self.name.slug))
-
-        logging.debug(self.url)
-
-    @classmethod
-    def api_check(cls, reply, expected=None, raises=None):
-        msg = _common_api_check(reply, expected, raises)
-        if msg is None:
-            return
-
-        reply_json = reply.json()
-        print(reply_json)
-
-        if 'message' in reply_json:
-            msg += '\n' + reply_json['message']
-        if 'errors' in reply_json:
-            msg += '\n' + reply_json['errors'][0]['message']
-
-        raise RemoteError(msg)
-
-    @classmethod
-    def from_data(cls, data, credentials=None):
-        instance = cls(data['full_name'], credentials)
-        instance.basic_data = dict(
-            scm = 'git',
-            slug = data['name'],
-            full_name = data['full_name'],
-            size = data['size'],
-            access = 'private' if data['private'] else 'public')
-        return instance
-
-    # FIXME: refactor superclass
-    def __getattr__(self, attr):
-        assert attr in 'scm slug full_name size access'.split(), "Missing attribute '{}'".format(attr)
-
-        try:
-            return self.basic_data[attr]
-        except KeyError:
-            return self.data[attr]
-
-    @property
-    @lru_cache
-    def data(self):
-        result = requests.get(self.url)
-        self.api_check(result)
-        return result.json()
-
-    def last_commits(self, max_=3):
-        # https://developer.github.com/v3/repos/commits/#list-commits
-        url = self.url + '/commits'
-        logging.debug(url)
-
-        result = requests.get(url)
-        self.api_check(result, [200, 409])
-        if result.status_code == 409:
-            return []
-
-        commits = result.json()
-
-        for c in commits[:3]:
-            yield dict(
-                hash    = c['sha'], 
-                author  = "{} <{}>".format(
-                    c['commit']['author']['name'], c['commit']['author']['email']),
-                date    = c['commit']['author']['date'], 
-                message = c['commit']['message'])
-
-    def create(self):
-        url = self.auth(self.CREATE_URL.format(org=self.name.owner.workspace))
-        logging.debug(url)
-
-        result = requests.post(
-            url,
-            data=json.dumps({'name':self.slug, 'private': True}))
-
-        self.api_check(result, [201])
-        real_name = result.json()['name']
-        return real_name
-
-    def delete(self):
-        self.api_check(requests.delete(self.url), [204],
-            raises={404:RepositoryNotFound(self.full_name)})
-    
-    def rename(self, new_name):
-        # FIXME: github supports transfer
-        if '/' in new_name:
-            raise error('New name must have no workspace, transfer is not supported')
-
-        self.check()
-
-        result = requests.patch(
-            self.url, 
-            data=json.dumps({'name':new_name}))
-
-        print(result.status_code)
-        print(result.json())
-
-        # FIXME: this is required also on create
-        self.api_check(result)
-        real_name = result.json()['name'].split('/')[-1]
-        return real_name
-
-
 class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
 
@@ -522,6 +405,123 @@ class BitbucketWorkspace(Auth):
 
     def check(self):
         BitbucketRepo.api_check(requests.get(self.auth(self.url)))
+
+
+class GithubRepo(Repo):
+    BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
+    CREATE_URL = 'https://api.github.com/orgs/{org}/repos'
+
+    # FIXME: refactor superclass
+    def __init__(self, name, credentials=None):
+        self.name = RepoName.cast(name, site='github')
+
+        super().__init__(credentials)
+        self.basic_data = dict(
+            full_name = self.name.full_name,
+            slug = self.name.slug)
+
+        self.url = self.auth(self.BASE_URL.format(
+            owner=self.name.owner.workspace, repo=self.name.slug))
+
+        logging.debug(self.url)
+
+    @classmethod
+    def api_check(cls, reply, expected=None, raises=None):
+        msg = _common_api_check(reply, expected, raises)
+        if msg is None:
+            return
+
+        reply_json = reply.json()
+        print(reply_json)
+
+        if 'message' in reply_json:
+            msg += '\n' + reply_json['message']
+        if 'errors' in reply_json:
+            msg += '\n' + reply_json['errors'][0]['message']
+
+        raise RemoteError(msg)
+
+    @classmethod
+    def from_data(cls, data, credentials=None):
+        instance = cls(data['full_name'], credentials)
+        instance.basic_data = dict(
+            scm = 'git',
+            slug = data['name'],
+            full_name = data['full_name'],
+            size = data['size'],
+            access = 'private' if data['private'] else 'public')
+        return instance
+
+    # FIXME: refactor superclass
+    def __getattr__(self, attr):
+        assert attr in 'scm slug full_name size access'.split(), "Missing attribute '{}'".format(attr)
+
+        try:
+            return self.basic_data[attr]
+        except KeyError:
+            return self.data[attr]
+
+    @property
+    @lru_cache
+    def data(self):
+        result = requests.get(self.url)
+        self.api_check(result)
+        return result.json()
+
+    def last_commits(self, max_=3):
+        # https://developer.github.com/v3/repos/commits/#list-commits
+        url = self.url + '/commits'
+        logging.debug(url)
+
+        result = requests.get(url)
+        self.api_check(result, [200, 409])
+        if result.status_code == 409:
+            return []
+
+        commits = result.json()
+
+        for c in commits[:3]:
+            yield dict(
+                hash    = c['sha'], 
+                author  = "{} <{}>".format(
+                    c['commit']['author']['name'], c['commit']['author']['email']),
+                date    = c['commit']['author']['date'], 
+                message = c['commit']['message'])
+
+    def create(self):
+        url = self.auth(self.CREATE_URL.format(org=self.name.owner.workspace))
+        logging.debug(url)
+
+        result = requests.post(
+            url,
+            data=json.dumps({'name':self.slug, 'private': True}))
+
+        self.api_check(result, [201])
+        real_name = result.json()['name']
+        return real_name
+
+    def delete(self):
+        self.api_check(requests.delete(self.url), [204],
+            raises={404:RepositoryNotFound(self.full_name)})
+    
+    def rename(self, new_name):
+        # FIXME: github supports transfer
+        if '/' in new_name:
+            raise error('New name must have no workspace, transfer is not supported')
+
+        self.check()
+
+        result = requests.patch(
+            self.url, 
+            data=json.dumps({'name':new_name}))
+
+        print(result.status_code)
+        print(result.json())
+
+        # FIXME: this is required also on create
+        self.api_check(result)
+        real_name = result.json()['name'].split('/')[-1]
+        return real_name
 
 
 class GithubWorkspace(Auth):
