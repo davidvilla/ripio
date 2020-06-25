@@ -135,9 +135,12 @@ def cmd_repo_delete(config):
 
 
 def cmd_repo_clone(config):
-    full_name = ripio.RepoName.complete(config.repo, config)
-    repo = ripio.BitbucketRepo(full_name, config.credentials)
+    repo = get_repo(config)
     destdir = config.destdir / repo.slug
+
+    if Path(destdir).exists():
+        raise ripio.DestinationDirectoryAlreadyExists(destdir)
+
     print("Cloning({}) '{}' to '{}'".format(
         config.proto, repo.full_name, destdir))
     repo.clone(destdir, config.proto)

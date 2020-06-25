@@ -43,7 +43,7 @@ class BitbucketWorkspaceTests(TestCase):
             self.assertEquals('ripio-missing-work-space', str(e))
 
     def test_not_supported_site(self):
-        with self.assertRaises(ripio.BadWorkspaceName):
+        with self.assertRaises(ripio.UnsupportedSite):
             self.make_workspace('not-supported-site:name')
 
     def test_redundant_site(self):

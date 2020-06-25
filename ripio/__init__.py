@@ -47,6 +47,8 @@ class BadWorkspaceName(error):
 
 class UnsupportedSite(error): pass
 
+class DestinationDirectoryAlreadyExists(error): pass
+
 
 class WorkspaceName:
     def __init__(self, full_workspace, site=None):
@@ -505,7 +507,7 @@ class GithubRepo(Repo):
             raises={404:RepositoryNotFound(self.full_name)})
     
     def rename(self, new_name):
-        # FIXME: github supports transfer
+        # FIXME: github supports transfers
         if '/' in new_name:
             raise error('New name must have no workspace, transfer is not supported')
 
@@ -518,11 +520,26 @@ class GithubRepo(Repo):
         print(result.status_code)
         print(result.json())
 
-        # FIXME: this is required also on create
         self.api_check(result)
         real_name = result.json()['name'].split('/')[-1]
         return real_name
 
+    @property
+    @lru_cache
+    def clone_links(self):
+        return dict(
+            ssh = self.data['ssh_url'],
+            https = self.data['clone_url']
+        )
+
+    def clone(self, destdir, proto='ssh'):
+        def dash(*data):
+            print('-', end='', flush=True)
+
+        url = self.clone_links[proto]
+        logging.debug(url)
+        git.Repo.clone_from(url, destdir, progress=dash)
+        print()      
 
 class GithubWorkspace(Auth):
     BASE_ORG_URL = 'https://api.github.com/orgs/{}/repos'
