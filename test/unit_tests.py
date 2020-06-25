@@ -12,122 +12,118 @@ with open('test/GITHUB_CREDENTIALS') as f:
 
 
 class BitbucketWorkspaceTests(TestCase):
+    def setUp(self):
+        self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
+        self.public_repos = ['repo{}'.format(x) for x in range(12)] + ['empty']
+        self.all_repos = self.public_repos + ['private.hg', 'empty']
+        self.prefix = 'bitbucket:'
+        self.abbreviated_prefix = 'bb:'
+
+    def make_workspace(self, name, auth=True):
+        creds = self.credentials if auth else None
+        return ripio.BitbucketWorkspace(name, creds)
+
     def test_ls_public(self):
-        sut = ripio.BitbucketWorkspace('ripio-test', None)
-        public_repos = ['repo{}'.format(x) for x in range(12)]
+        sut = self.make_workspace('ripio-test', False)
         result = sut.ls_repos()
         names = [x.slug for x in result]
-        self.assertSetEqual(set(names), set(public_repos))
+        self.assertSetEqual(set(names), set(self.public_repos))
 
     def test_ls_all(self):
-        cred = ripio.Credentials(BITBUCKET_CREDENTIALS)
-        sut = ripio.BitbucketWorkspace('ripio-test', cred)
-        expected = ['repo{}'.format(x) for x in range(12)] + ['private.hg']
+        sut = self.make_workspace('ripio-test')    
         result = sut.ls_repos()
         names = [x.slug for x in result]
-        self.assertSetEqual(set(names), set(expected))
+        self.assertSetEqual(set(names), set(self.all_repos))
 
     def test_ls_missing_workspace(self):
-        cred = ripio.Credentials(BITBUCKET_CREDENTIALS)
-        ws = ripio.BitbucketWorkspace('ripio-missing-work-space', cred)
+        ws = self.make_workspace('ripio-missing-work-space')
 
         with self.assertRaises(ripio.RemoteError) as e:
             ws.check()
             self.assertEquals('ripio-missing-work-space', str(e))
 
+    def test_not_supported_site(self):
+        with self.assertRaises(ripio.BadWorkspaceName):
+            self.make_workspace('not-supported-site:name')
 
-class GithubWorkspaceTest(TestCase):
-    def test_ls_public(self):
-        sut = ripio.GithubWorkspace('github:ripio-test', None)
-        public_repos = ['repo{}'.format(x) for x in range(32)]
-        result = sut.ls_repos()
-        names = [x.slug for x in result]
-        self.assertSetEqual(set(names), set(public_repos))
+    def test_redundant_site(self):
+        self.make_workspace(self.prefix + 'ripio-test')
+
+    def test_abbreviated_site_not_supported(self):
+        with self.assertRaises(ripio.BadWorkspaceName):
+            self.make_workspace(self.abbreviated_prefix + 'ripio-test')
+
+
+class GithubWorkspaceTest(BitbucketWorkspaceTests):
+    def setUp(self):
+        self.credentials = ripio.Credentials(GITHUB_CREDENTIALS)
+        self.public_repos = ['repo{}'.format(x) for x in range(32)]
+        self.all_repos = self.public_repos  + ['private', 'empty']
+        self.prefix = 'github:'
+        self.abbreviated_prefix = 'gh:'
+
+    def make_workspace(self, name, auth=True):
+        creds = self.credentials if auth else None
+        return ripio.GithubWorkspace(name, creds)
 
 
 class BitbucketRepoTests(TestCase):
+    def setUp(self):
+        self.remove_fixtures()
+
     @classmethod
-    def setUpClass(cls):
-        creds = ripio.Credentials(BITBUCKET_CREDENTIALS)
-        for r in ['removable to-delete']:
-            name = 'ripio-test/{}'.format(r)
+    def make_repo(cls, name, auth=True):
+        creds = ripio.Credentials(BITBUCKET_CREDENTIALS) if auth else None
+        return ripio.BitbucketRepo(name, creds)
+
+    @classmethod
+    def remove_fixtures(cls):
+        i = 0
+        for r in ['removable', 'to-delete']:
+            name = 'ripio-test/' + r
             try:
-                ripio.BitbucketRepo(name, creds).delete()
+                cls.make_repo(name).delete()
+                i += 1
             except ripio.RepositoryNotFound:
                 pass
 
-    def setUp(self):
-        self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
+        if i:
+            time.sleep(1)
 
     def test_head(self):
-        repo = ripio.BitbucketRepo('ripio-test/repo0')
-        result = list(repo.last_commits())[0]['message']
-        self.assertIn('last-commit-message', result)
-
-    def test_create_delete(self):
-        repo = ripio.BitbucketRepo('ripio-test/removable', self.credentials)
-        repo.create()
-        repo.delete()
-        time.sleep(1)
-
-    def test_create_rename_delete(self):
-        repo = ripio.BitbucketRepo('ripio-test/removable', self.credentials)
-        repo.create()
-        repo.rename('to-delete')
-
-        repo = ripio.BitbucketRepo('ripio-test/to-delete', self.credentials)
-        repo.delete()
-        time.sleep(1)
-
-    def test_delete_missing(self):
-        repo = ripio.BitbucketRepo('ripio-test/missing', self.credentials)
-        with self.assertRaises(ripio.RepositoryNotFound):
-            repo.delete()
-
-class GithubRepoTests(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        creds = ripio.Credentials(GITHUB_CREDENTIALS)
-        for r in ['removable to-delete']:
-            name = 'ripio-test/{}'.format(r)
-            try:
-                ripio.GithubRepo(name, creds).delete()
-            except ripio.RepositoryNotFound:
-                pass
-
-    def setUp(self):
-        self.credentials = ripio.Credentials(GITHUB_CREDENTIALS)
-
-    def test_head(self):
-        repo = ripio.GithubRepo('ripio-test/repo0')
+        repo = self.make_repo('ripio-test/repo0')
         result = list(repo.last_commits())[0]['message']
         self.assertIn('last-commit-message', result)
 
     def test_head_empty_repo(self):
-        repo = ripio.GithubRepo('ripio-test/empty', self.credentials)
+        repo = self.make_repo('ripio-test/empty')
         result = list(repo.last_commits())
-        self.assertEquals(result, [])
+        self.assertEquals(result, [])      
 
-    def test_create_delete(self):
-        repo = ripio.GithubRepo('ripio-test/removable', self.credentials)
+    def test_create(self):
+        repo = self.make_repo('ripio-test/removable')
+        name = repo.create()
+        self.assertEquals(name, 'removable')
+
+    def test_create_rename(self):
+        repo = self.make_repo('ripio-test/removable')
         repo.create()
-        repo.delete()
-        time.sleep(1)
-
-    def test_create_rename_delete(self):
-        repo = ripio.GithubRepo('ripio-test/removable', self.credentials)
-        repo.create()
-        repo.rename('to-delete')
-
-        repo = ripio.GithubRepo('ripio-test/to-delete', self.credentials)
-        repo.delete()
-        time.sleep(1)
+        name = repo.rename('to-delete')
+        self.assertEquals(name, 'to-delete')
 
     def test_delete_missing(self):
-        repo = ripio.GithubRepo('ripio-test/missing', self.credentials)
+        repo = self.make_repo('ripio-test/missing')
         with self.assertRaises(ripio.RepositoryNotFound):
             repo.delete()
 
+class GithubRepoTests(BitbucketRepoTests):
+    def setUp(self):
+        self.remove_fixtures()
+
+    @classmethod
+    def make_repo(cls, name, auth=True):
+        creds = ripio.Credentials(GITHUB_CREDENTIALS) if auth else None
+        return ripio.GithubRepo(name, creds)
 
 
 class CompleterTests(TestCase):

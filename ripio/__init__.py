@@ -323,7 +323,7 @@ class GithubRepo(Repo):
             data=json.dumps({'name':self.slug, 'private': True}))
 
         self.api_check(result, [201])
-        real_name = result.json()['full_name']
+        real_name = result.json()['name']
         return real_name
 
     def delete(self):
@@ -346,7 +346,7 @@ class GithubRepo(Repo):
 
         # FIXME: this is required also on create
         self.api_check(result)
-        real_name = result.json()['full_name'].split('/')[-1]
+        real_name = result.json()['name'].split('/')[-1]
         return real_name
 
 
@@ -475,9 +475,11 @@ class BitbucketRepo(Repo):
         real_name = result.headers['Location'].split('/')[-1]
         return real_name
 
-    # FIXME: return real name
+ 
     def create(self):
-        self.api_check(requests.post(self.url))
+        result = requests.post(self.url)
+        self.api_check(result)
+        return self.slug
 
     def delete(self):
         self.api_check(requests.delete(self.url), [204],
@@ -496,9 +498,14 @@ class BitbucketRepo(Repo):
 class BitbucketWorkspace(Auth):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
 
-    def __init__(self, workspace, credentials):
+    def __init__(self, name, credentials):
         super().__init__(credentials)
-        self.url = self.BASE_URL.format(workspace)
+        if not isinstance(name, WorkspaceName):
+            if not name.startswith('bitbucket:'):
+                name = 'bitbucket:' + name
+
+            name = WorkspaceName(name)
+        self.url = self.BASE_URL.format(name.workspace)
 
     def ls_repos(self):
         next_link = self.url
@@ -523,6 +530,9 @@ class GithubWorkspace(Auth):
     def __init__(self, name, credentials):
         super().__init__(credentials)
         if not isinstance(name, WorkspaceName):
+            if not name.startswith('github:'):
+                name = 'github:' + name
+
             name = WorkspaceName(name)
 
         self.url = self.BASE_ORG_URL.format(name.workspace)
@@ -546,3 +556,6 @@ class GithubWorkspace(Auth):
 
             for repo in page:
                 yield GithubRepo.from_data(repo, self.credentials)
+
+    def check(self):
+        GithubRepo.api_check(requests.get(self.auth(self.url)))
