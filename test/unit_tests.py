@@ -49,9 +49,8 @@ class BitbucketWorkspaceTests(TestCase):
     def test_redundant_site(self):
         self.make_workspace(self.prefix + 'ripio-test')
 
-    def test_abbreviated_site_not_supported(self):
-        with self.assertRaises(ripio.BadWorkspaceName):
-            self.make_workspace(self.abbreviated_prefix + 'ripio-test')
+    def test_abbreviated_site(self):
+        self.make_workspace(self.abbreviated_prefix + 'ripio-test')
 
 
 class GithubWorkspaceTest(BitbucketWorkspaceTests):

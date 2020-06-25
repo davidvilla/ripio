@@ -68,6 +68,9 @@ class WorkspaceName:
         if self.site in abbrevs:
             self.site = abbrevs[self.site]
 
+        if self.site not in ['bitbucket', 'github']:
+            raise UnsupportedSite(self.site)
+
     def __repr__(self):
         return "<WorkspaceName '{}:{}'>".format(self.site, self.workspace)
 
@@ -347,6 +350,14 @@ class BitbucketRepo(Repo):
                 date    = c['date'], 
                 message = c['message'])
 
+    def create(self):
+        result = requests.post(self.url)
+        self.api_check(result)
+        return self.slug
+
+    def delete(self):
+        self.api_check(requests.delete(self.url), [204],
+               raises={404:RepositoryNotFound(self.full_name)})
 
     def rename(self, new_name):
         if '/' in new_name:
@@ -360,16 +371,6 @@ class BitbucketRepo(Repo):
         real_name = result.headers['Location'].split('/')[-1]
         return real_name
 
- 
-    def create(self):
-        result = requests.post(self.url)
-        self.api_check(result)
-        return self.slug
-
-    def delete(self):
-        self.api_check(requests.delete(self.url), [204],
-               raises={404:RepositoryNotFound(self.full_name)})
-
     def clone(self, destdir, proto='ssh'):
         def dash(*data):
             print('-', end='', flush=True)
@@ -378,35 +379,6 @@ class BitbucketRepo(Repo):
         logging.debug(url)
         git.Repo.clone_from(url, destdir, progress=dash)
         print()
-
-
-class BitbucketWorkspace(Auth):
-    BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
-
-    def __init__(self, name, credentials):
-        super().__init__(credentials)
-        if not isinstance(name, WorkspaceName):
-            if not name.startswith('bitbucket:'):
-                name = 'bitbucket:' + name
-
-            name = WorkspaceName(name)
-        self.url = self.BASE_URL.format(name.workspace)
-
-    def ls_repos(self):
-        next_link = self.url
-        while next_link is not None:
-            next_link = self.auth(next_link)
-            result = requests.get(next_link)
-            logging.debug(next_link)
-            BitbucketRepo.api_check(result)
-
-            page = result.json()
-            next_link = page.get('next')
-            for repo in page['values']:
-                yield BitbucketRepo.from_data(repo, self.credentials)
-
-    def check(self):
-        BitbucketRepo.api_check(requests.get(self.auth(self.url)))
 
 
 class GithubRepo(Repo):
@@ -470,6 +442,14 @@ class GithubRepo(Repo):
         self.api_check(result)
         return result.json()
 
+    @property
+    @lru_cache
+    def clone_links(self):
+        return dict(
+            ssh = self.data['ssh_url'],
+            https = self.data['clone_url']
+        )
+
     def last_commits(self, max_=3):
         # https://developer.github.com/v3/repos/commits/#list-commits
         url = self.url + '/commits'
@@ -524,14 +504,6 @@ class GithubRepo(Repo):
         real_name = result.json()['name'].split('/')[-1]
         return real_name
 
-    @property
-    @lru_cache
-    def clone_links(self):
-        return dict(
-            ssh = self.data['ssh_url'],
-            https = self.data['clone_url']
-        )
-
     def clone(self, destdir, proto='ssh'):
         def dash(*data):
             print('-', end='', flush=True)
@@ -539,7 +511,35 @@ class GithubRepo(Repo):
         url = self.clone_links[proto]
         logging.debug(url)
         git.Repo.clone_from(url, destdir, progress=dash)
-        print()      
+        print()
+
+
+class BitbucketWorkspace(Auth):
+    BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
+
+    def __init__(self, name, credentials):
+        super().__init__(credentials)
+        if not isinstance(name, WorkspaceName):
+            name = WorkspaceName(name, 'bitbucket')
+
+        self.url = self.BASE_URL.format(name.workspace)
+
+    def ls_repos(self):
+        next_link = self.url
+        while next_link is not None:
+            next_link = self.auth(next_link)
+            result = requests.get(next_link)
+            logging.debug(next_link)
+            BitbucketRepo.api_check(result)
+
+            page = result.json()
+            next_link = page.get('next')
+            for repo in page['values']:
+                yield BitbucketRepo.from_data(repo, self.credentials)
+
+    def check(self):
+        BitbucketRepo.api_check(requests.get(self.auth(self.url)))
+
 
 class GithubWorkspace(Auth):
     BASE_ORG_URL = 'https://api.github.com/orgs/{}/repos'
@@ -547,10 +547,7 @@ class GithubWorkspace(Auth):
     def __init__(self, name, credentials):
         super().__init__(credentials)
         if not isinstance(name, WorkspaceName):
-            if not name.startswith('github:'):
-                name = 'github:' + name
-
-            name = WorkspaceName(name)
+            name = WorkspaceName(name, 'github')
 
         self.url = self.BASE_ORG_URL.format(name.workspace)
 
