@@ -7,3 +7,11 @@ test/*_CREDENTIALS
 .noseids
 nosetests.xml
 .vscode/.ropeproject/
+.pybuild
+build
+debian/.debhelper
+debian/files
+debian/ripio
+debian/debhelper-build-stamp
+debian/ripio.debhelper.log
+debian/ripio.substvars
