@@ -237,6 +237,13 @@ class Repo(Auth):
         self.data
         return True
 
+    @classmethod
+    def from_dir(cls, dirname, credentials=None):
+        origin = git.Repo(Path.cwd()).remote().url
+        logging.debug(origin)
+        full_name = origin_to_fullname(origin)
+        return cls(full_name, credentials)
+
 
 class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
@@ -251,7 +258,6 @@ class BitbucketRepo(Repo):
 
         self.url = self.auth(self.BASE_URL.format(
             owner=name.owner.workspace, repo=name.slug))
-        logging.debug(self.url)
 
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
@@ -273,13 +279,6 @@ class BitbucketRepo(Repo):
             msg += '\n' + json.dumps(error['detail'], indent=2)
 
         raise RemoteError(msg)        
-
-    @classmethod
-    def from_dir(cls, dirname, credentials=None):
-        origin = git.Repo(Path.cwd()).remote().url
-        logging.debug(origin)
-        full_name = origin_to_fullname(origin)
-        return cls(full_name, credentials)
 
     @classmethod
     def from_data(cls, data, credentials=None):
@@ -304,6 +303,7 @@ class BitbucketRepo(Repo):
     @property
     @lru_cache
     def data(self):
+        logging.debug(self.url)
         result = requests.get(self.url)
 
         # FIXME: api_check may do this
@@ -383,7 +383,7 @@ class BitbucketRepo(Repo):
 
 class GithubRepo(Repo):
     BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
-    CREATE_URL = 'https://api.github.com/orgs/{org}/repos'
+    ORG_URL  = 'https://api.github.com/orgs/{org}/repos'
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):
@@ -396,8 +396,6 @@ class GithubRepo(Repo):
 
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
-
-        logging.debug(self.url)
 
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
@@ -471,7 +469,7 @@ class GithubRepo(Repo):
                 message = c['commit']['message'])
 
     def create(self):
-        url = self.auth(self.CREATE_URL.format(org=self.name.owner.workspace))
+        url = self.auth(self.ORG_URL.format(org=self.name.owner.workspace))
         logging.debug(url)
 
         result = requests.post(
@@ -542,14 +540,20 @@ class BitbucketWorkspace(Auth):
 
 
 class GithubWorkspace(Auth):
-    BASE_ORG_URL = 'https://api.github.com/orgs/{}/repos'
+    ORG_URL = 'https://api.github.com/orgs/{org}/repos'
+    USER_URL = 'https://api.github.com/users/{user}/repos'
 
     def __init__(self, name, credentials):
         super().__init__(credentials)
         if not isinstance(name, WorkspaceName):
             name = WorkspaceName(name, 'github')
 
-        self.url = self.BASE_ORG_URL.format(name.workspace)
+        self.url = self.ORG_URL.format(org=name.workspace)
+        result = requests.get(self.auth(self.url))
+        if result.status_code == 404:
+            logging.info("'{}' is not an organization. Trying as user.".format(
+                name.workspace))
+            self.url = self.USER_URL.format(user=name.workspace)
 
     def ls_repos(self):
         def get_next_link(result):

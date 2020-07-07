@@ -240,7 +240,7 @@ Abbreviated names are allowed when suitable configuration is given.
         raise
 
 
-def main2():
+def main_production():
     try:
         run()
         print('-- ok')
@@ -249,5 +249,7 @@ def main2():
         print('-- fail')
         sys.exit(1)
 
-def main():
+def main_debug():
     run()
+
+main = main_debug

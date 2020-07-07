@@ -11,7 +11,7 @@ with open('test/GITHUB_CREDENTIALS') as f:
     GITHUB_CREDENTIALS = f.read()
 
 
-class BitbucketWorkspaceTests(TestCase):
+class BitbucketWorkspace(TestCase):
     def setUp(self):
         self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
         self.public_repos = ['repo{}'.format(x) for x in range(12)] + ['empty']
@@ -53,7 +53,7 @@ class BitbucketWorkspaceTests(TestCase):
         self.make_workspace(self.abbreviated_prefix + 'ripio-test')
 
 
-class GithubWorkspaceTest(BitbucketWorkspaceTests):
+class GithubWorkspace(BitbucketWorkspace):
     def setUp(self):
         self.credentials = ripio.Credentials(GITHUB_CREDENTIALS)
         self.public_repos = ['repo{}'.format(x) for x in range(32)]
@@ -66,7 +66,19 @@ class GithubWorkspaceTest(BitbucketWorkspaceTests):
         return ripio.GithubWorkspace(name, creds)
 
 
-class BitbucketRepoTests(TestCase):
+class GithubWorkspaceUser(TestCase):
+    def make_workspace(self, name, auth=True):
+        creds = self.credentials if auth else None
+        return ripio.GithubWorkspace(name, creds)
+
+    def test_ls_public(self):
+        sut = self.make_workspace('davidvilla', False)
+        result = sut.ls_repos()
+        names = [x.slug for x in result]
+        self.assertSetEqual(set(names), set(self.public_repos))
+
+
+class BitbucketRepo(TestCase):
     def setUp(self):
         self.remove_fixtures()
 
@@ -115,7 +127,8 @@ class BitbucketRepoTests(TestCase):
         with self.assertRaises(ripio.RepositoryNotFound):
             repo.delete()
 
-class GithubRepoTests(BitbucketRepoTests):
+
+class GithubRepo(BitbucketRepo):
     def setUp(self):
         self.remove_fixtures()
 
@@ -125,7 +138,24 @@ class GithubRepoTests(BitbucketRepoTests):
         return ripio.GithubRepo(name, creds)
 
 
-class CompleterTests(TestCase):
+class GithubUser(TestCase):
+    @classmethod
+    def make_repo(cls, name, auth=True):
+        creds = ripio.Credentials(GITHUB_CREDENTIALS) if auth else None
+        return ripio.GithubRepo(name, creds)
+
+    def test_head(self):
+        repo = self.make_repo('davidvilla/ripio-dummy')
+        result = list(repo.last_commits())[0]['message']
+        self.assertIn('last-commit-message', result)
+
+    # def test_create_user_repo(self):
+    #     repo = self.make_repo('davidvilla/removable')
+    #     name = repo.create()
+    #     self.assertEquals(name, 'removable')
+
+
+class Completer(TestCase):
     # def test_fullname(self):
     #     name = ripio.RepoName.complete('ripio-test/repo0', None)
     #     self.assertEquals(name, 'ripio-test/repo0')
@@ -142,7 +172,7 @@ class CompleterTests(TestCase):
             ripio.RepoName.complete('repo0', ns)
 
 
-class ConfigTests(TestCase):
+class Config(TestCase):
     def test_empty(self):
         sut = ripio.Config('test/fixtures/empty.conf')
         self.assert_(sut.is_valid())
@@ -159,7 +189,7 @@ class ConfigTests(TestCase):
         self.assertEquals(set(result), expected)
 
 
-class Bitbucket_URL_Tests(TestCase):
+class Bitbucket_URL(TestCase):
     def test_bitbucket_ssh(self):
         result = ripio.origin_to_fullname(
             'git@bitbucket.org:DavidVilla/ripio.git')
@@ -171,7 +201,7 @@ class Bitbucket_URL_Tests(TestCase):
         self.assertEquals(result, 'DavidVilla/ripio')
 
 
-class Github_URL_Tests(TestCase):
+class Github_URL(TestCase):
     def test_github_ssh(self):
         result = ripio.origin_to_fullname(
             'git@ithub.com:davidvilla/python-doublex.git')
