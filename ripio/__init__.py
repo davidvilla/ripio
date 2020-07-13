@@ -19,6 +19,29 @@ from . import utils
 
 PROGNAME = 'ripio'
 
+
+CONFIG_USAGE = '''\
+ERROR: No config file available.
+
+Provide a config file with -c argument or default location: ~/.config/ripio.
+
+    [bitbucket]
+    workspaces = ["team1", "team2"]
+    
+    [bitbucket.credentials]
+    default = "JohnDoe:secret"
+    
+    [github]
+    workspaces = ["org1", "org2"]
+    
+    [github.credentials]
+    default = "JohnDoe:secret"
+
+Use these features to create "safe" passwords:
+- https://bitbucket.org/account/settings/app-passwords
+- https://github.com/settings/tokens
+'''
+
 class error(Exception):
     def __str__(self):
         msg = self.__class__.__name__
@@ -36,7 +59,9 @@ class RemoteError(error): pass
 
 class ConfigError(error): pass
 
-class MissingConfig(error): pass
+class MissingConfig(error): 
+    def __str__(self):
+        return CONFIG_USAGE
 
 class BadRepositoryName(error): pass
 
@@ -301,7 +326,7 @@ class BitbucketRepo(Repo):
 
     # FIXME: Refactor superclass
     @property
-    @lru_cache
+    @lru_cache()
     def data(self):
         logging.debug(self.url)
         result = requests.get(self.url)
@@ -314,7 +339,7 @@ class BitbucketRepo(Repo):
         return result.json()
 
     @property
-    @lru_cache
+    @lru_cache()
     def clone_links(self):
         '''Example:
            "clone": [
@@ -333,7 +358,7 @@ class BitbucketRepo(Repo):
         return retval
 
     @property
-    @lru_cache
+    @lru_cache()
     def webpage(self):
         return self.data['links']['html']['href']
 
@@ -434,14 +459,14 @@ class GithubRepo(Repo):
             return self.data[attr]
 
     @property
-    @lru_cache
+    @lru_cache()
     def data(self):
         result = requests.get(self.url)
         self.api_check(result)
         return result.json()
 
     @property
-    @lru_cache
+    @lru_cache()
     def clone_links(self):
         return dict(
             ssh = self.data['ssh_url'],

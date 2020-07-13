@@ -26,12 +26,14 @@ def set_verbosity(args):
 
 def load_config(args):
     config = None
-    home_config = Path.home() / '.ripio'
+    home_config = Path.home() / '.config/ripio'
 
     if args.config is not None:
         config = ripio.Config(args.config)
     elif home_config.exists():
         config = ripio.Config(home_config)
+    else:
+        raise ripio.MissingConfig
 
     logging.debug("Loading config '{}'".format(config.fname))
 
@@ -171,8 +173,8 @@ Abbreviated names are allowed when suitable configuration is given.
 ''')
 
     parser.add_argument('--config', help='alternate config file')
-    parser.add_argument('-c', '--credentials', type=ripio.Credentials.make,
-                        help="authentication credentials with 'user:pass' format")
+#    parser.add_argument('-c', '--credentials', type=ripio.Credentials.make,
+#                        help="authentication credentials with 'user:pass' format")
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='verbosity level. -v:INFO, -vv:DEBUG')
     cmds = parser.add_subparsers()
@@ -252,4 +254,6 @@ def main_production():
 def main_debug():
     run()
 
+
 main = main_debug
+main = main_production
