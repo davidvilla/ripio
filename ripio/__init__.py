@@ -27,18 +27,18 @@ Provide a config file with -c argument or default location: ~/.config/ripio.
 
     [bitbucket]
     workspaces = ["team1", "team2"]
-    
+
     [bitbucket.credentials]
     default = "JohnDoe:secret"
-    
+
     [github]
     workspaces = ["org1", "org2"]
-    
+
     [github.credentials]
     default = "JohnDoe:secret"
 
 Use these features to create "safe" passwords:
-- https://bitbucket.org/account/settings/app-passwords
+- https://bitbucket.org/account/settings/app-passwords/
 - https://github.com/settings/tokens
 '''
 
@@ -59,7 +59,7 @@ class RemoteError(error): pass
 
 class ConfigError(error): pass
 
-class MissingConfig(error): 
+class MissingConfig(error):
     def __str__(self):
         return CONFIG_USAGE
 
@@ -226,9 +226,11 @@ class Config:
     def __repr__(self):
         return "<Config '{}'>".format(self.fname)
 
+
 class Credentials:
     def __init__(self, credentials):
         self.username, self.password = credentials.split(':')
+        print(self)
 
     @classmethod
     def make(cls, credentials):
@@ -241,6 +243,7 @@ class Credentials:
         return (self.username, self.password) == (other.username, other.password)
 
     def __repr__(self):
+        return "<Credentials '{}:{}'>".format(self.username, self.password)
         return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
 
@@ -303,7 +306,7 @@ class BitbucketRepo(Repo):
         if 'detail' in error:
             msg += '\n' + json.dumps(error['detail'], indent=2)
 
-        raise RemoteError(msg)        
+        raise RemoteError(msg)
 
     @classmethod
     def from_data(cls, data, credentials=None):
@@ -370,9 +373,9 @@ class BitbucketRepo(Repo):
 
         for c in commits[:3]:
             yield dict(
-                hash    = c['hash'], 
-                author  = c['author']['raw'], 
-                date    = c['date'], 
+                hash    = c['hash'],
+                author  = c['author']['raw'],
+                date    = c['date'],
                 message = c['message'])
 
     def create(self):
@@ -487,10 +490,10 @@ class GithubRepo(Repo):
 
         for c in commits[:3]:
             yield dict(
-                hash    = c['sha'], 
+                hash    = c['sha'],
                 author  = "{} <{}>".format(
                     c['commit']['author']['name'], c['commit']['author']['email']),
-                date    = c['commit']['author']['date'], 
+                date    = c['commit']['author']['date'],
                 message = c['commit']['message'])
 
     def create(self):
@@ -508,7 +511,7 @@ class GithubRepo(Repo):
     def delete(self):
         self.api_check(requests.delete(self.url), [204],
             raises={404:RepositoryNotFound(self.full_name)})
-    
+
     def rename(self, new_name):
         # FIXME: github supports transfers
         if '/' in new_name:
@@ -517,7 +520,7 @@ class GithubRepo(Repo):
         self.check()
 
         result = requests.patch(
-            self.url, 
+            self.url,
             data=json.dumps({'name':new_name}))
 
         print(result.status_code)

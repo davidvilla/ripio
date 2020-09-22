@@ -5,17 +5,17 @@ from unittest import TestCase
 import ripio
 
 with open('test/BITBUCKET_CREDENTIALS') as f:
-    BITBUCKET_CREDENTIALS = f.read()
+    BITBUCKET_CREDENTIALS = f.read().strip()
 
 with open('test/GITHUB_CREDENTIALS') as f:
-    GITHUB_CREDENTIALS = f.read()
+    GITHUB_CREDENTIALS = f.read().strip()
 
 
 class BitbucketWorkspace(TestCase):
     def setUp(self):
         self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
         self.public_repos = ['repo{}'.format(x) for x in range(12)] + ['empty']
-        self.all_repos = self.public_repos + ['private.hg', 'empty']
+        self.all_repos = self.public_repos + ['empty']
         self.prefix = 'bitbucket:'
         self.abbreviated_prefix = 'bb:'
 
@@ -30,7 +30,7 @@ class BitbucketWorkspace(TestCase):
         self.assertSetEqual(set(names), set(self.public_repos))
 
     def test_ls_all(self):
-        sut = self.make_workspace('ripio-test')    
+        sut = self.make_workspace('ripio-test')
         result = sut.ls_repos()
         names = [x.slug for x in result]
         self.assertSetEqual(set(names), set(self.all_repos))
@@ -54,9 +54,10 @@ class BitbucketWorkspace(TestCase):
 
 
 class GithubWorkspace(BitbucketWorkspace):
+    public_repos = ['repo{}'.format(x) for x in range(32)]
+
     def setUp(self):
         self.credentials = ripio.Credentials(GITHUB_CREDENTIALS)
-        self.public_repos = ['repo{}'.format(x) for x in range(32)]
         self.all_repos = self.public_repos  + ['private', 'empty']
         self.prefix = 'github:'
         self.abbreviated_prefix = 'gh:'
@@ -66,16 +67,16 @@ class GithubWorkspace(BitbucketWorkspace):
         return ripio.GithubWorkspace(name, creds)
 
 
-class GithubWorkspaceUser(TestCase):
-    def make_workspace(self, name, auth=True):
-        creds = self.credentials if auth else None
-        return ripio.GithubWorkspace(name, creds)
+# class GithubWorkspaceUser(TestCase):
+#     def make_workspace(self, name, auth=True):
+#         creds = self.credentials if auth else None
+#         return ripio.GithubWorkspace(name, creds)
 
-    def test_ls_public(self):
-        sut = self.make_workspace('davidvilla', False)
-        result = sut.ls_repos()
-        names = [x.slug for x in result]
-        self.assertSetEqual(set(names), set(self.public_repos))
+#     def test_ls_public(self):
+#         sut = self.make_workspace('davidvilla', auth=False)
+#         result = sut.ls_repos()
+#         names = [x.slug for x in result]
+#         self.assertSetEqual(set(names), set(GithubWorkspace.public_repos))
 
 
 class BitbucketRepo(TestCase):
@@ -85,6 +86,7 @@ class BitbucketRepo(TestCase):
     @classmethod
     def make_repo(cls, name, auth=True):
         creds = ripio.Credentials(BITBUCKET_CREDENTIALS) if auth else None
+        print(creds)
         return ripio.BitbucketRepo(name, creds)
 
     @classmethod
@@ -109,7 +111,7 @@ class BitbucketRepo(TestCase):
     def test_head_empty_repo(self):
         repo = self.make_repo('ripio-test/empty')
         result = list(repo.last_commits())
-        self.assertEquals(result, [])      
+        self.assertEquals(result, [])
 
     def test_create(self):
         repo = self.make_repo('ripio-test/removable')
