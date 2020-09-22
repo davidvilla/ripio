@@ -33,7 +33,7 @@ exec(open('version.py').read())
 
 setup(name         = 'ripio',
       version      = __version__,
-      description  = 'Bitbucket git repositories from command line',
+      description  = 'git repositories from command line',
       author       = 'David Villa Alises',
       author_email = 'David.Villa@gmail.com',
       url          = 'https://bitbucket.org/DavidVilla/ripio',
