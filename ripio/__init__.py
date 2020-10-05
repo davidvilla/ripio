@@ -53,6 +53,7 @@ class error(Exception):
     def detail(self, msg):
         return "\n- " + msg
 
+
 class RepositoryNotFound(error): pass
 
 class RemoteError(error): pass
@@ -148,7 +149,7 @@ class RepoName:
         for ws in workspaces:
             try:
                 full_name = '{}/{}'.format(ws, name)
-                BitbucketRepo(full_name).check()
+                BitbucketRepo(full_name).check()  # FIXME
                 return full_name
             except RepositoryNotFound as e:
                 logging.warning(e)
@@ -157,7 +158,7 @@ class RepoName:
             str.join(', ', workspaces)))
 
     def __str__(self):
-        return self.full_name
+        return "{}:{}".format(self.site, self.full_name)
 
 
 def _common_api_check(reply, expected, raises):
@@ -186,7 +187,7 @@ def origin_to_fullname(origin):
         return path.split('/', 3)[-1]
 
 
-class Config:
+class ConfigFile:
     def __init__(self, fname):
         self.fname = fname
         self.toml = toml.load(fname)
@@ -230,7 +231,6 @@ class Config:
 class Credentials:
     def __init__(self, credentials):
         self.username, self.password = credentials.split(':')
-        print(self)
 
     @classmethod
     def make(cls, credentials):
@@ -243,7 +243,6 @@ class Credentials:
         return (self.username, self.password) == (other.username, other.password)
 
     def __repr__(self):
-        return "<Credentials '{}:{}'>".format(self.username, self.password)
         return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
 
@@ -277,7 +276,7 @@ class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
 
     def __init__(self, name, credentials=None):
-        name = RepoName.cast(name, site='bitbucket')
+        self.name = RepoName.cast(name, site='bitbucket')
 
         super().__init__(credentials)
         self.basic_data = dict(
@@ -332,11 +331,14 @@ class BitbucketRepo(Repo):
     @lru_cache()
     def data(self):
         logging.debug(self.url)
+
+        # FIXME: catch connection exceptions
         result = requests.get(self.url)
 
         # FIXME: api_check may do this
         if result.status_code == 404:
-            raise RepositoryNotFound(self.full_name)
+            print("___>", self.name)
+            raise RepositoryNotFound(self.name)
 
         self.api_check(result)
         return result.json()
