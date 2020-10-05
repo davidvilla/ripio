@@ -91,8 +91,7 @@ def cmd_ls_repos(config):
 def get_repo(config):
     assert config.credentials
     ws_name = ripio.RepoName(config.repo)
-    print(ws_name.site)
-    print(ws_name.full_name)
+    print("-repo found at '{}:{}'".format(ws_name.site, ws_name.full_name))
 
     if ws_name.site == 'bitbucket':
         return ripio.BitbucketRepo(ws_name, config.credentials.get('bitbucket'))

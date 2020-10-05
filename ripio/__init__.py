@@ -25,6 +25,9 @@ ERROR: No config file available.
 
 Provide a config file with -c argument or default location: ~/.config/ripio.
 
+    [clone]
+    destdir = "~/repos"
+
     [bitbucket]
     workspaces = ["team1", "team2"]
 
@@ -230,7 +233,6 @@ class Config:
 class Credentials:
     def __init__(self, credentials):
         self.username, self.password = credentials.split(':')
-        print(self)
 
     @classmethod
     def make(cls, credentials):
@@ -243,7 +245,6 @@ class Credentials:
         return (self.username, self.password) == (other.username, other.password)
 
     def __repr__(self):
-        return "<Credentials '{}:{}'>".format(self.username, self.password)
         return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
 
 
