@@ -280,11 +280,11 @@ class BitbucketRepo(Repo):
 
         super().__init__(credentials)
         self.basic_data = dict(
-            full_name = name.full_name,
-            slug = name.slug)
+            full_name = self.name.full_name,
+            slug = self.name.slug)
 
         self.url = self.auth(self.BASE_URL.format(
-            owner=name.owner.workspace, repo=name.slug))
+            owner=self.name.owner.workspace, repo=self.name.slug))
 
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
