@@ -15,7 +15,7 @@ class BitbucketWorkspace(TestCase):
     def setUp(self):
         self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
         self.public_repos = ['repo{}'.format(x) for x in range(12)] + ['empty']
-        self.all_repos = self.public_repos + ['empty']
+        self.all_repos = self.public_repos + ['empty', 'private']
         self.prefix = 'bitbucket:'
         self.abbreviated_prefix = 'bb:'
 
@@ -176,16 +176,16 @@ class Completer(TestCase):
 
 class Config(TestCase):
     def test_empty(self):
-        sut = ripio.Config('test/fixtures/empty.conf')
+        sut = ripio.ConfigFile('test/fixtures/empty.conf')
         self.assert_(sut.is_valid())
 
     def test_bitbucket_credentials(self):
-        sut = ripio.Config('test/fixtures/bitbucket.conf')
+        sut = ripio.ConfigFile('test/fixtures/bitbucket.conf')
         result = sut.get_credentials('bitbucket')
         self.assertEquals(result, ripio.Credentials('john.doe:secret'))
 
     def test_username_included_as_workspace_by_default(self):
-        sut = ripio.Config('test/fixtures/bitbucket.conf')
+        sut = ripio.ConfigFile('test/fixtures/bitbucket.conf')
         result = sut.bitbucket.workspaces
         expected = set(['ripio-test', 'DavidVilla'])
         self.assertEquals(set(result), expected)

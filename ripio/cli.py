@@ -24,34 +24,6 @@ def set_verbosity(args):
     logging.getLogger().setLevel(level)
 
 
-def load_config(args):
-    config = None
-    home_config = Path.home() / '.config/ripio'
-
-    if args.config is not None:
-        config = ripio.Config(args.config)
-    elif home_config.exists():
-        config = ripio.Config(home_config)
-    else:
-        raise ripio.MissingConfig
-
-    logging.debug("Loading config '{}'".format(config.fname))
-
-    try:
-        for key in ['destdir', 'bitbucket', 'github']:
-            try:
-                setattr(args, key, getattr(config, key))
-            except ripio.MissingConfig:
-                pass
-
-        args.credentials = {
-            'bitbucket': config.get_credentials('bitbucket'),
-            'github':    config.get_credentials('github')}
-
-    except FileNotFoundError as e:
-        logging.error(e)
-
-
 def canceled():
     print('-- canceled')
     sys.exit(1)
@@ -89,7 +61,7 @@ def cmd_ls_repos(config):
 
 
 def get_repo(config):
-    assert config.credentials
+    # assert config.credentials
     ws_name = ripio.RepoName(config.repo)
     print("-repo found at '{}:{}'".format(ws_name.site, ws_name.full_name))
 
@@ -159,6 +131,83 @@ def cmd_site(config):
     webbrowser.open(url)
 
 
+def load_config(args):
+    config = None
+    home_config = Path.home() / '.config/ripio'
+
+    if args.config is not None:
+        config = ripio.ConfigFile(args.config)
+    elif home_config.exists():
+        config = ripio.ConfigFile(home_config)
+    else:
+        raise ripio.MissingConfig
+
+    logging.debug("Loading config '{}'".format(config.fname))
+
+    try:
+        for key in ['destdir', 'bitbucket', 'github']:
+            try:
+                setattr(args, key, getattr(config, key))
+            except ripio.MissingConfig:
+                pass
+
+        args.credentials = {
+            'bitbucket': config.get_credentials('bitbucket'),
+            'github':    config.get_credentials('github')}
+
+    except FileNotFoundError as e:
+        logging.error(e)
+
+
+class BaseConfig(argparse.Namespace):
+    def __init__(self):
+        # self.destdir = Path.home() / 'repos'
+        self.credentials = {}
+
+    def load_file(self):
+        self.config_file = None
+        home_config = Path.home() / '.config/ripio'
+
+        if self.config is not None:
+            self.config_file = ripio.ConfigFile(self.config)
+        elif home_config.exists():
+            self.config_file = ripio.ConfigFile(home_config)
+        else:
+            raise ripio.MissingConfig
+    
+        logging.debug("Loading config '{}'".format(self.config_file.fname))
+
+        try:
+            self.destdir = getattr(self.config_file, 'destdir')
+        except AttributeError:
+            pass
+
+    def __setattr__(self, key, value):
+        # if key == 'destdir':
+        #     raise AssertionError
+        # if 'ripio' in str(value):
+        #     raise AssertionError
+
+
+        print("-- set-attr -->", key, value)
+        super().__setattr__(key, value)
+
+    # @property
+    # def bitbucket(self):
+    #     return getattr(self.config_file, 'bitbucket')
+
+    # @property
+    # def github(self):
+    #     return getattr(self.config_file, 'github')
+
+    # @property
+    # def credentials(self):
+    #     return {
+    #         'bitbucket': self.config_file.get_credentials('bitbucket'),
+    #         'github':    self.config_file.get_credentials('github')
+    #         }
+
+
 def run():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
         description='''\
@@ -225,9 +274,14 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_site.set_defaults(func=cmd_site)
 
 
-    config = parser.parse_args()
+
+    config = parser.parse_args(namespace=BaseConfig())
+    config.load_file()
+    print("--->", config.verbosity)
+    print("--->", config.destdir)
+    
     set_verbosity(config)
-    load_config(config)
+    # load_config(config)
 
     if not hasattr(config, 'func'):
         parser.print_help()
