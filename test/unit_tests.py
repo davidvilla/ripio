@@ -193,23 +193,30 @@ class Config(TestCase):
 
 class Bitbucket_URL(TestCase):
     def test_bitbucket_ssh(self):
-        result = ripio.origin_to_fullname(
+        expected = ripio.RepoName('bb:DavidVilla/ripio')
+        result = ripio.RepoName.from_origin(
             'git@bitbucket.org:DavidVilla/ripio.git')
-        self.assertEquals(result, 'DavidVilla/ripio')
+        self.assertEquals(result, expected)
 
     def test_bitbucket_https(self):
-        result = ripio.origin_to_fullname(
+        expected = ripio.RepoName('bb:DavidVilla/ripio')
+        result = ripio.RepoName.from_origin(
             'https://bitbucket.org/DavidVilla/ripio.git')
-        self.assertEquals(result, 'DavidVilla/ripio')
+        self.assertEquals(result, expected)
 
 
 class Github_URL(TestCase):
     def test_github_ssh(self):
-        result = ripio.origin_to_fullname(
-            'git@ithub.com:davidvilla/python-doublex.git')
-        self.assertEquals(result, 'davidvilla/python-doublex')
+        expected = ripio.RepoName('gh:davidvilla/python-doublex')
+        result = ripio.RepoName.from_origin(
+            'git@github.com:davidvilla/python-doublex.git')
+        self.assertEquals(result, expected)
 
     def test_github_https(self):
-        result = ripio.origin_to_fullname(
+        expected = ripio.RepoName('gh:davidvilla/python-doublex')
+        result = ripio.RepoName.from_origin(
             'https://github.com/davidvilla/python-doublex.git')
-        self.assertEquals(result, 'davidvilla/python-doublex')
+        self.assertEquals(result, expected)
+
+
+# FIXME: test "cmd: ripio site"

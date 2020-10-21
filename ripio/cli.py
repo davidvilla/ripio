@@ -62,15 +62,10 @@ def cmd_ls_repos(config):
 
 def get_repo(config):
     # assert config.credentials
-    ws_name = ripio.RepoName(config.repo)
-    print("-repo found at '{}:{}'".format(ws_name.site, ws_name.full_name))
+    repo_name = ripio.RepoName(config.repo)
+    print("-repo found at '{}:{}'".format(repo_name.site, repo_name.full_name))
 
-    if ws_name.site == 'bitbucket':
-        return ripio.BitbucketRepo(ws_name, config.credentials.get('bitbucket'))
-    elif ws_name.site == 'github':
-        return ripio.GithubRepo(ws_name, config.credentials.get('github'))
-    
-    raise ripio.UnsupportedSite(ws_name.site)
+    return ripio.Repo.make(repo_name, config.credentials)
 
 
 def cmd_print_head(config):
@@ -126,43 +121,44 @@ def cmd_show_config(config):
 
 
 def cmd_site(config):
-    url = ripio.BitbucketRepo.from_dir(Path.cwd(), config.credentials).webpage
+    repo = ripio.Repo.from_dir(Path.cwd(), config.credentials)
+    url = repo.webpage
     print("Openning '{}'".format(url))
     webbrowser.open(url)
 
 
-def load_config(args):
-    config = None
-    home_config = Path.home() / '.config/ripio'
+# def load_config(args):
+#     config = None
+#     home_config = Path.home() / '.config/ripio'
 
-    if args.config is not None:
-        config = ripio.ConfigFile(args.config)
-    elif home_config.exists():
-        config = ripio.ConfigFile(home_config)
-    else:
-        raise ripio.MissingConfig
+#     if args.config is not None:
+#         config = ripio.ConfigFile(args.config)
+#     elif home_config.exists():
+#         config = ripio.ConfigFile(home_config)
+#     else:
+#         raise ripio.MissingConfig
 
-    logging.debug("Loading config '{}'".format(config.fname))
+#     logging.debug("Loading config '{}'".format(config.fname))
 
-    try:
-        for key in ['destdir', 'bitbucket', 'github']:
-            try:
-                setattr(args, key, getattr(config, key))
-            except ripio.MissingConfig:
-                pass
+#     try:
+#         for key in ['destdir', 'bitbucket', 'github']:
+#             try:
+#                 setattr(args, key, getattr(config, key))
+#             except ripio.MissingConfig:
+#                 pass
 
-        args.credentials = {
-            'bitbucket': config.get_credentials('bitbucket'),
-            'github':    config.get_credentials('github')}
+#         args.credentials = {
+#             'bitbucket': config.get_credentials('bitbucket'),
+#             'github':    config.get_credentials('github')}
 
-    except FileNotFoundError as e:
-        logging.error(e)
+#     except FileNotFoundError as e:
+#         logging.error(e)
 
 
 class BaseConfig(argparse.Namespace):
     def __init__(self):
         # self.destdir = Path.home() / 'repos'
-        self.credentials = {}
+        pass
 
     def load_file(self):
         self.config_file = None
@@ -189,7 +185,7 @@ class BaseConfig(argparse.Namespace):
         #     raise AssertionError
 
 
-        print("-- set-attr -->", key, value)
+        # print("-- set-attr -->", key, value)
         super().__setattr__(key, value)
 
     # @property
@@ -200,12 +196,12 @@ class BaseConfig(argparse.Namespace):
     # def github(self):
     #     return getattr(self.config_file, 'github')
 
-    # @property
-    # def credentials(self):
-    #     return {
-    #         'bitbucket': self.config_file.get_credentials('bitbucket'),
-    #         'github':    self.config_file.get_credentials('github')
-    #         }
+    @property
+    def credentials(self):
+        return {
+            'bitbucket': self.config_file.get_credentials('bitbucket'),
+            'github':    self.config_file.get_credentials('github')
+            }
 
 
 def run():
@@ -277,8 +273,8 @@ Abbreviated names are allowed when suitable configuration is given.
 
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()
-    print("--->", config.verbosity)
-    print("--->", config.destdir)
+    # print("--->", config.verbosity)
+    # print("--->", config.destdir)
     
     set_verbosity(config)
     # load_config(config)

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
+import re
 
 import logging
 logging.getLogger().setLevel(logging.DEBUG)
@@ -120,6 +121,24 @@ class RepoName:
         self.global_name = '{}:{}'.format(self.site, self.full_name)
 
     @classmethod
+    def from_origin(self, path):
+        sites = {
+            'github.com': 'github',
+            'bitbucket.org': 'bitbucket'
+        }
+
+        if path.startswith('git@'):
+            fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', path)[0]
+            return RepoName('{}:{}'.format(sites[fields[0]], fields[1]))
+
+        elif path.startswith('https://'):
+            fields = re.findall(r'\Ahttps?://([^/]+)/(.+).git\Z', path)[0]
+            return RepoName('{}:{}'.format(sites[fields[0]], fields[1]))
+
+    def __eq__(self, other):
+        return self.global_name == other.global_name
+
+    @classmethod
     def cast(cls, name, site):
         if isinstance(name, RepoName):
             return name
@@ -160,8 +179,8 @@ class RepoName:
         raise RepositoryNotFound("in any known workspace '{}'".format(
             str.join(', ', workspaces)))
 
-    def __str__(self):
-        return "{}:{}".format(self.site, self.full_name)
+    def __repr__(self):
+        return "<RepoName '{}:{}'>".format(self.site, self.full_name)
 
 
 def _common_api_check(reply, expected, raises):
@@ -180,14 +199,6 @@ def _common_api_check(reply, expected, raises):
         raise RemoteError(msg)
 
     return msg
-
-
-def origin_to_fullname(origin):
-    path = origin.rstrip('.git')
-    if path.startswith('git@'):
-        return path.split(':')[1]
-    elif path.startswith('https://'):
-        return path.split('/', 3)[-1]
 
 
 class ConfigFile:
@@ -262,6 +273,19 @@ class Auth:
         return urlunparse(parts._replace(netloc=user_pass + parts.netloc))
 
 
+def safe_url(url):
+    if not '@' in url:
+        return url
+
+    parts = urlparse(url)    
+
+    # FIXME: regex?
+    user_pass, plain_netloc = parts.netloc.split('@')
+    username = user_pass.split(':')[0]
+    safe_netloc = '{}:{}@{}'.format(username, '****', plain_netloc)
+    return urlunparse(parts._replace(netloc=safe_netloc))
+
+
 class Repo(Auth):
     def check(self):
         self.data
@@ -271,8 +295,25 @@ class Repo(Auth):
     def from_dir(cls, dirname, credentials=None):
         origin = git.Repo(Path.cwd()).remote().url
         logging.debug(origin)
-        full_name = origin_to_fullname(origin)
-        return cls(full_name, credentials)
+        repo_name = RepoName.from_origin(origin)
+        return cls.make(repo_name, credentials)
+        
+    @classmethod
+    def make(cls, repo_name, credentials):
+        repo_classes = {
+            'github': GithubRepo,
+            'bitbucket': BitbucketRepo,
+        }
+
+        try:
+            repo_class = repo_classes[repo_name.site]
+        except KeyError:
+            raise UnsupportedSite(repo_name.site)            
+
+        return repo_class(repo_name, credentials.get(repo_name.site))
+       
+    def __repr__(self):
+        return "<{} '{}'>".format(self.__class__.__name__, self.name.global_name)
 
 
 class BitbucketRepo(Repo):
@@ -466,9 +507,11 @@ class GithubRepo(Repo):
         except KeyError:
             return self.data[attr]
 
+    # FIXME: refactor superclass
     @property
     @lru_cache()
     def data(self):
+        logging.debug(self.url)
         result = requests.get(self.url)
         self.api_check(result)
         return result.json()
@@ -480,6 +523,11 @@ class GithubRepo(Repo):
             ssh = self.data['ssh_url'],
             https = self.data['clone_url']
         )
+
+    @property
+    @lru_cache()
+    def webpage(self):
+        return self.data['html_url']
 
     def last_commits(self, max_=3):
         # https://developer.github.com/v3/repos/commits/#list-commits
