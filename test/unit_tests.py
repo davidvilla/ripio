@@ -15,7 +15,7 @@ class BitbucketWorkspace(TestCase):
     def setUp(self):
         self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)
         self.public_repos = ['repo{}'.format(x) for x in range(12)] + ['empty']
-        self.all_repos = self.public_repos + ['empty']
+        self.all_repos = self.public_repos + ['empty', 'private']
         self.prefix = 'bitbucket:'
         self.abbreviated_prefix = 'bb:'
 
