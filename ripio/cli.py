@@ -63,7 +63,7 @@ def cmd_ls_repos(config):
 def get_repo(config):
     # assert config.credentials
     repo_name = ripio.RepoName(config.repo)
-    print("-repo found at '{}:{}'".format(repo_name.site, repo_name.full_name))
+    print("- repository found at '{}:{}'".format(repo_name.site, repo_name.full_name))
 
     return ripio.Repo.make(repo_name, config.credentials)
 
@@ -84,21 +84,21 @@ def cmd_print_head(config):
 def cmd_repo_rename(config):
     repo = get_repo(config)
     new_name = repo.rename(config.new_name)
-    print("Repository '{}' renamed as '{}/{}'".format(
+    print("- repository '{}' renamed as '{}/{}'".format(
         repo.name.full_name, repo.name.owner.workspace, new_name))
 
 
 def cmd_repo_create(config):
     repo = get_repo(config)
     name = repo.create()
-    print("Repository '{}' created".format(name))
+    print("- repository '{}' created".format(name))
 
 
 def cmd_repo_delete(config):
     repo = get_repo(config)
     repo.check()
     confirm_irrecoverable_operation()
-    print("Deleting '{}'".format(repo.full_name))
+    print("- deleting '{}'".format(repo.full_name))
     repo.delete()
 
 
@@ -109,7 +109,7 @@ def cmd_repo_clone(config):
     if Path(destdir).exists():
         raise ripio.DestinationDirectoryAlreadyExists(destdir)
 
-    print("Cloning({}) '{}' to '{}'".format(
+    print("- cloning({}) '{}' to '{}'".format(
         config.proto, repo.full_name, destdir))
     repo.clone(destdir, config.proto)
 
@@ -123,7 +123,7 @@ def cmd_show_config(config):
 def cmd_site(config):
     repo = ripio.Repo.from_dir(Path.cwd(), config.credentials)
     url = repo.webpage
-    print("Openning '{}'".format(url))
+    print("- openning '{}'".format(url))
     webbrowser.open(url)
 
 
@@ -156,10 +156,6 @@ def cmd_site(config):
 
 
 class BaseConfig(argparse.Namespace):
-    def __init__(self):
-        # self.destdir = Path.home() / 'repos'
-        pass
-
     def load_file(self):
         self.config_file = None
         home_config = Path.home() / '.config/ripio'
@@ -171,30 +167,13 @@ class BaseConfig(argparse.Namespace):
         else:
             raise ripio.MissingConfig
     
-        logging.debug("Loading config '{}'".format(self.config_file.fname))
+        # FIXME: verbosity argument does not affect this, it is previous to setLevel
+        # logging.debug("Loading config '{}'".format(self.config_file.fname))
 
         try:
             self.destdir = getattr(self.config_file, 'destdir')
         except AttributeError:
             pass
-
-    def __setattr__(self, key, value):
-        # if key == 'destdir':
-        #     raise AssertionError
-        # if 'ripio' in str(value):
-        #     raise AssertionError
-
-
-        # print("-- set-attr -->", key, value)
-        super().__setattr__(key, value)
-
-    # @property
-    # def bitbucket(self):
-    #     return getattr(self.config_file, 'bitbucket')
-
-    # @property
-    # def github(self):
-    #     return getattr(self.config_file, 'github')
 
     @property
     def credentials(self):

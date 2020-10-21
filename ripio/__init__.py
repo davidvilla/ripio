@@ -48,7 +48,7 @@ Use these features to create "safe" passwords:
 
 class error(Exception):
     def __str__(self):
-        msg = self.__class__.__name__
+        msg = "- " + getattr(self, 'reason', self.__class__.__name__)
         if len(self.args):
             msg += ": {}".format(self.args[0])
 
@@ -77,7 +77,8 @@ class BadWorkspaceName(error):
 
 class UnsupportedSite(error): pass
 
-class DestinationDirectoryAlreadyExists(error): pass
+class DestinationDirectoryAlreadyExists(error):
+    reason = 'destination directory already exists'
 
 
 class WorkspaceName:
