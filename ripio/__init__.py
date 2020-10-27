@@ -47,18 +47,32 @@ Use these features to create "safe" passwords:
 '''
 
 class error(Exception):
+    def __init__(self, *args):
+        self.value = None
+
     def __str__(self):
         msg = "- " + getattr(self, 'reason', self.__class__.__name__)
-        if len(self.args):
-            msg += ": {}".format(self.args[0])
+        msg += ": {}".format(self.get_value())
 
         return msg
+
+    def get_value(self):
+        if self.value:
+            return self.value
+        if len(self.args):
+            return self.args[0]
+
+        return ''
 
     def detail(self, msg):
         return "\n- " + msg
 
 
-class RepositoryNotFound(error): pass
+class RepositoryNotFound(error):
+    def __init__(self, reponame):
+        assert isinstance(reponame, RepoName)
+        self.value = reponame.global_name
+
 
 class RemoteError(error): pass
 
@@ -181,7 +195,7 @@ class RepoName:
             str.join(', ', workspaces)))
 
     def __repr__(self):
-        return "<RepoName '{}:{}'>".format(self.site, self.full_name)
+        return "<RepoName '{}'>".format(self.global_name)
 
 
 def _common_api_check(reply, expected, raises):
@@ -382,7 +396,6 @@ class BitbucketRepo(Repo):
 
         # FIXME: api_check may do this
         if result.status_code == 404:
-            print("___>", self.name)
             raise RepositoryNotFound(self.name)
 
         self.api_check(result)
