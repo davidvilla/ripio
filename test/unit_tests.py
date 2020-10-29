@@ -93,7 +93,8 @@ class BitbucketRepo(TestCase):
     def remove_fixtures(cls):
         i = 0
         for r in ['removable', 'to-delete']:
-            name = 'ripio-test/' + r
+            name = ripio.RepoName('bb:ripio-test/' + r)
+            print(name, type(name), isinstance(name, ripio.RepoName))
             try:
                 cls.make_repo(name).delete()
                 i += 1

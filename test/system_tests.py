@@ -1,11 +1,11 @@
-from prego import TestCase, Task, command, assert_that
+from prego import TestCase, Task, command
 import hamcrest
 
 
 class CloneTests(TestCase):
     def test_bitbucket_public_no_creds(self):
         command('rm -rf repo1')
-        ripio = command('ripio --config /dev/null clone bb:ripio-test/repo1')
+        command('bin/ripio --config /dev/null clone bb:ripio-test/repo1')
 
     def test_bitbucket_private_no_creds(self):
         ripio = Task()
@@ -15,7 +15,7 @@ class CloneTests(TestCase):
 
     def test_github_public_no_creds(self):
         command('rm -rf repo1')
-        ripio = command('ripio --config /dev/null clone gh:ripio-test/repo1')
+        command('ripio --config /dev/null clone gh:ripio-test/repo1')
 
     def test_github_private_no_creds(self):
         ripio = Task()

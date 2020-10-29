@@ -237,8 +237,8 @@ class ConfigFile:
         try:
             site = getattr(self, site)
             return Credentials(site.credentials.default)
-        except KeyError:
-            raise MissingConfig
+        except AttributeError:
+            return None
 
     @property
     def destdir(self):
@@ -339,8 +339,8 @@ class BitbucketRepo(Repo):
 
         super().__init__(credentials)
         self.basic_data = dict(
-            full_name = self.name.full_name,
-            slug = self.name.slug)
+            full_name=self.name.full_name,
+            slug=self.name.slug)
 
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
@@ -370,11 +370,11 @@ class BitbucketRepo(Repo):
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
         instance.basic_data = dict(
-            scm = data['scm'],
-            slug = data['slug'],
-            full_name = data['full_name'],
-            size = data['size'],
-            access = 'private' if data['is_private'] else 'public')
+            scm=data['scm'],
+            slug=data['slug'],
+            full_name=data['full_name'],
+            size=data['size'],
+            access='private' if data['is_private'] else 'public')
         return instance
 
     def __getattr__(self, attr):
@@ -445,7 +445,7 @@ class BitbucketRepo(Repo):
 
     def delete(self):
         self.api_check(requests.delete(self.url), [204],
-               raises={404:RepositoryNotFound(self.full_name)})
+                       raises={404: RepositoryNotFound(self.name)})
 
     def rename(self, new_name):
         if '/' in new_name:
@@ -479,8 +479,8 @@ class GithubRepo(Repo):
 
         super().__init__(credentials)
         self.basic_data = dict(
-            full_name = self.name.full_name,
-            slug = self.name.slug)
+            full_name=self.name.full_name,
+            slug=self.name.slug)
 
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
@@ -505,11 +505,11 @@ class GithubRepo(Repo):
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
         instance.basic_data = dict(
-            scm = 'git',
-            slug = data['name'],
-            full_name = data['full_name'],
-            size = data['size'],
-            access = 'private' if data['private'] else 'public')
+            scm='git',
+            slug=data['name'],
+            full_name=data['full_name'],
+            size=data['size'],
+            access='private' if data['private'] else 'public')
         return instance
 
     # FIXME: refactor superclass
@@ -534,8 +534,8 @@ class GithubRepo(Repo):
     @lru_cache()
     def clone_links(self):
         return dict(
-            ssh = self.data['ssh_url'],
-            https = self.data['clone_url']
+            ssh=self.data['ssh_url'],
+            https=self.data['clone_url']
         )
 
     @property
@@ -577,7 +577,7 @@ class GithubRepo(Repo):
 
     def delete(self):
         self.api_check(requests.delete(self.url), [204],
-            raises={404:RepositoryNotFound(self.full_name)})
+            raises={404:RepositoryNotFound(self.name)})
 
     def rename(self, new_name):
         # FIXME: github supports transfers
