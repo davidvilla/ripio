@@ -170,10 +170,7 @@ class BaseConfig(argparse.Namespace):
         # FIXME: verbosity argument does not affect this, it is previous to setLevel
         # logging.debug("Loading config '{}'".format(self.config_file.fname))
 
-        try:
-            self.destdir = getattr(self.config_file, 'destdir')
-        except AttributeError:
-            pass
+        self.destdir = self.config_file.destdir
 
     @property
     def credentials(self):

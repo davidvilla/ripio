@@ -217,7 +217,11 @@ def _common_api_check(reply, expected, raises):
 
 
 class ConfigFile:
-    def __init__(self, fname):
+    def __init__(self, fname=None):
+        if not fname:
+            self.data = utils.dictToObject({})
+            return
+
         self.fname = fname
         self.toml = toml.load(fname)
         self.data = utils.dictToObject(self.toml)
@@ -244,14 +248,14 @@ class ConfigFile:
     def destdir(self):
         try:
             return Path(self.data.clone.destdir).expanduser()
-        except KeyError:
-            raise MissingConfig
+        except AttributeError:
+            return Path.cwd()
 
-    def is_valid(self):
-        if not set(self.toml.keys()).issubset(set('bitbucket')):
-            return False
+    # def is_valid(self):
+    #     if not set(self.toml.keys()).issubset(set('bitbucket')):
+    #         return False
 
-        return True
+    #     return True
 
     def __repr__(self):
         return "<Config '{}'>".format(self.fname)

@@ -1,6 +1,7 @@
 import time
 from argparse import Namespace
 from unittest import TestCase
+from pathlib import Path
 
 import ripio
 
@@ -175,11 +176,16 @@ class Completer(TestCase):
             ripio.RepoName.complete('repo0', ns)
 
 
-class Config(TestCase):
-    def test_empty(self):
-        sut = ripio.ConfigFile('test/fixtures/empty.conf')
-        self.assert_(sut.is_valid())
+class EmptyConfigFile(TestCase):
+    # def test_empty(self):
+    #     sut = ripio.ConfigFile('test/fixtures/empty.conf')
+    #     self.assert_(sut.is_valid())
+    def test_destdir(self):
+        sut = ripio.ConfigFile()
+        self.assertEquals(sut.destdir, Path.cwd())
 
+
+class ConfigFile(TestCase):
     def test_bitbucket_credentials(self):
         sut = ripio.ConfigFile('test/fixtures/bitbucket.conf')
         result = sut.get_credentials('bitbucket')
