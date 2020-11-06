@@ -9,3 +9,14 @@ Traceback (most recent call last):
     setattr(args, key, getattr(config, key))
 AttributeError: 'NoneType' object has no attribute 'credentials'
 
+---
+
+~/repos$ ripio clone gh:uclm-es/hello.ice
+DEBUG:root:Loading config '/home/david/.config/ripio'
+-repo found at 'github:uclm-es/hello.ice'
+Cloning(ssh) 'uclm-es/hello.ice' to '/home/david/repos/hello.ice'
+{'message': 'Not Found', 'documentation_url': 'https://docs.github.com/rest/reference/repos#get-a-repository'}
+Try 'ripio -v' for detail
+RemoteError: ERROR 404: Not Found
+Not Found
+-- fail
