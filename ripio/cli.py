@@ -46,6 +46,10 @@ def confirm_irrecoverable_operation():
                  valid_answers=['YES'])
 
 
+def pretty_path(path):
+    return str(path).replace(str(Path.home()), '~')
+
+
 def cmd_ls_repos(config):
     ws_name = ripio.WorkspaceName(config.owner)
     if ws_name.site == 'bitbucket':
@@ -110,7 +114,7 @@ def cmd_repo_clone(config):
         raise ripio.DestinationDirectoryAlreadyExists(destdir)
 
     print("- cloning({}) '{}' to '{}'".format(
-        config.proto, repo.full_name, destdir))
+        config.proto, repo.full_name, pretty_path(destdir)))
     repo.clone(destdir, config.proto)
 
 

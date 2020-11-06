@@ -223,8 +223,8 @@ class ConfigFile:
         try:
             site = getattr(self, site)
             return Credentials(site.credentials.default)
-        except KeyError:
-            raise MissingConfig
+        except AttributeError:
+            return None
 
     @property
     def destdir(self):
@@ -382,7 +382,6 @@ class BitbucketRepo(Repo):
 
         # FIXME: api_check may do this
         if result.status_code == 404:
-            print("___>", self.name)
             raise RepositoryNotFound(self.name)
 
         self.api_check(result)
