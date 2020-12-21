@@ -20,3 +20,21 @@ Try 'ripio -v' for detail
 RemoteError: ERROR 404: Not Found
 Not Found
 -- fail
+
+---
+
+DEBUG:root:Loading config '/home/david/.config/ripio'
+Traceback (most recent call last):
+  File "/usr/bin/ripio", line 9, in <module>
+    cli.main()
+  File "/usr/lib/python3/dist-packages/ripio/cli.py", line 296, in main_production
+    run()
+  File "/usr/lib/python3/dist-packages/ripio/cli.py", line 287, in run
+    config.func(config)
+  File "/usr/lib/python3/dist-packages/ripio/cli.py", line 124, in cmd_site
+    repo = ripio.Repo.from_dir(Path.cwd(), config.credentials)
+  File "/usr/lib/python3/dist-packages/ripio/__init__.py", line 296, in from_dir
+    origin = git.Repo(Path.cwd()).remote().url
+  File "/usr/lib/python3/dist-packages/git/repo/base.py", line 168, in __init__
+    raise InvalidGitRepositoryError(epath)
+git.exc.InvalidGitRepositoryError: /home/david/repos/foo/subdir
