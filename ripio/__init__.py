@@ -92,7 +92,7 @@ class BadWorkspaceName(error):
 class UnsupportedSite(error): pass
 
 class DestinationDirectoryAlreadyExists(error):
-    reason = 'destination directory already exists'
+    reason = 'destination directory already EXISTS'
 
 
 class WorkspaceName:
@@ -296,7 +296,7 @@ def safe_url(url):
     if not '@' in url:
         return url
 
-    parts = urlparse(url)    
+    parts = urlparse(url)
 
     # FIXME: regex?
     user_pass, plain_netloc = parts.netloc.split('@')
@@ -316,7 +316,7 @@ class Repo(Auth):
         logging.debug(origin)
         repo_name = RepoName.from_origin(origin)
         return cls.make(repo_name, credentials)
-        
+
     @classmethod
     def make(cls, repo_name, credentials):
         repo_classes = {
@@ -327,10 +327,10 @@ class Repo(Auth):
         try:
             repo_class = repo_classes[repo_name.site]
         except KeyError:
-            raise UnsupportedSite(repo_name.site)            
+            raise UnsupportedSite(repo_name.site)
 
         return repo_class(repo_name, credentials.get(repo_name.site))
-       
+
     def __repr__(self):
         return "<{} '{}'>".format(self.__class__.__name__, self.name.global_name)
 
