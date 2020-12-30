@@ -64,17 +64,17 @@ def cmd_ls_repos(config):
             i+1, to_kb(repo.size), repo))
 
 
-def get_repo(config):
-    # assert config.credentials
-    repo_name = ripio.RepoName(config.repo)
-    print("- repository found at '{}:{}'".format(repo_name.site, repo_name.full_name))
+def get_repo(config, name=None):
+    name = name or config.repo
+    repo_ref = ripio.RepoRef(name)
+    print("- repository identity is '{}:{}'".format(repo_ref.site, repo_ref.full_name))
 
-    return ripio.Repo.make(repo_name, config.credentials)
+    return ripio.Repo.make(repo_ref, config.credentials)
 
 
 def cmd_print_head(config):
-    # full_name = ripio.RepoName.complete(config.repo, config)
-    repo = get_repo(config)
+    # full_name = ripio.RepoRef.complete(config.repo, config)
+    repo = get_repo(config, )
     commits = list(repo.last_commits())
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
@@ -109,6 +109,9 @@ def cmd_repo_delete(config):
 def cmd_repo_clone(config):
     repo = get_repo(config)
     destdir = config.destdir / repo.slug
+
+    if not repo.exists():
+        raise ripio.RepositoryNotFound(repo.name)
 
     if Path(destdir).exists():
         raise ripio.DestinationDirectoryAlreadyExists(destdir)

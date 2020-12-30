@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-import sys
 import json
 from pathlib import Path
 from functools import lru_cache
@@ -19,6 +18,8 @@ import toml
 from . import utils
 
 PROGNAME = 'ripio'
+BITBUCKET = 'bitbucket.org'
+GITHUB = 'github.com'
 
 
 CONFIG_USAGE = '''\
@@ -46,6 +47,7 @@ Use these features to create "safe" passwords:
 - https://github.com/settings/tokens
 '''
 
+
 class error(Exception):
     def __init__(self, *args):
         self.value = None
@@ -69,9 +71,9 @@ class error(Exception):
 
 
 class RepositoryNotFound(error):
-    def __init__(self, reponame):
-        assert isinstance(reponame, RepoName)
-        self.value = reponame.global_name
+    def __init__(self, repo_ref):
+        assert isinstance(repo_ref, RepoRef)
+        self.value = repo_ref.global_name
 
 
 class RemoteError(error): pass
@@ -93,6 +95,10 @@ class UnsupportedSite(error): pass
 
 class DestinationDirectoryAlreadyExists(error):
     reason = 'destination directory already EXISTS'
+
+class WrongCompletion(error): pass
+
+class AccessDenied(error): pass
 
 
 class WorkspaceName:
@@ -119,8 +125,11 @@ class WorkspaceName:
     def __repr__(self):
         return "<WorkspaceName '{}:{}'>".format(self.site, self.workspace)
 
+    def __str__(self):
+        return "{}:{}".format(self.site, self.workspace)
 
-class RepoName:
+
+class RepoRef:
     def __init__(self, site_full_name, site=None):
         if site_full_name.count('/') != 1:
             raise BadRepositoryName(site_full_name)
@@ -138,64 +147,84 @@ class RepoName:
     @classmethod
     def from_origin(self, path):
         sites = {
-            'github.com': 'github',
-            'bitbucket.org': 'bitbucket'
+            GITHUB: 'github',
+            BITBUCKET: 'bitbucket'
         }
 
         if path.startswith('git@'):
             fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', path)[0]
-            return RepoName('{}:{}'.format(sites[fields[0]], fields[1]))
+            return RepoRef('{}:{}'.format(sites[fields[0]], fields[1]))
 
         elif path.startswith('https://'):
             fields = re.findall(r'\Ahttps?://([^/]+)/(.+).git\Z', path)[0]
-            return RepoName('{}:{}'.format(sites[fields[0]], fields[1]))
+            return RepoRef('{}:{}'.format(sites[fields[0]], fields[1]))
+
+    @classmethod
+    def from_parts(cls, workspace, name, site=None):
+        return RepoRef(workspace + '/' + name, site=site)
 
     def __eq__(self, other):
+        assert isinstance(other, RepoRef)
         return self.global_name == other.global_name
 
     @classmethod
     def cast(cls, name, site):
-        if isinstance(name, RepoName):
+        if isinstance(name, RepoRef):
             return name
 
-        return RepoName(name, site)
+        return RepoRef(name, site)
 
-    @classmethod
-    def complete(cls, name, config):
+    def __repr__(self):
+        return "<RepoRef '{}'>".format(self.global_name)
+
+
+class Completion:
+    def __init__(self, name, config):
+        self.found = []
+        self.denied = []
+        self.workspaces = self.get_workspaces(config)
+        self.complete(name, config)
+
+        if not self.found and not self.denied:
+            raise WrongCompletion("No guess found for any known workspace: '{}'.".format(
+                str.join(', ', [str(x) for x in self.workspaces])))
+
+    def complete(self, name, config):
         try:
-            RepoName(name)
-            return name
+            RepoRef(name)
+            return [name]
         except BadRepositoryName:
             pass
 
-        workspaces = []
-
-        try:
-            workspaces.append(config.bitbucket.credentials.default.split(':')[0])
-        except AttributeError:
-            pass
-
-        try:
-            workspaces.extend(config.bitbucket.workspaces)
-        except AttributeError:
-            pass
-
-        if not workspaces:
-            raise ConfigError("Requires key 'bitbucket.workspaces' to guess a workspaces")
-
-        for ws in workspaces:
+        for ws in self.workspaces:
             try:
-                full_name = '{}/{}'.format(ws, name)
-                BitbucketRepo(full_name).check()  # FIXME
-                return full_name
-            except RepositoryNotFound as e:
-                logging.warning(e)
+                repo = ws.make_repo(name)
+                if repo.exists():
+                    self.found.append(repo.name.global_name)
+            except AccessDenied:
+                self.denied.append(repo.name.global_name)
 
-        raise RepositoryNotFound("in any known workspace '{}'".format(
-            str.join(', ', workspaces)))
+    @classmethod
+    def get_workspaces(cls, config):
+        retval = []
 
-    def __repr__(self):
-        return "<RepoName '{}'>".format(self.global_name)
+        try:
+            retval.append(config.bitbucket.credentials.default.split(':')[0])
+        except AttributeError:
+            pass
+
+        ws_class = {'bitbucket': BitbucketWorkspace,
+                    'github':    GithubWorkspace}
+
+        for site in ['bitbucket', 'github']:
+            if hasattr(config, site):
+                for name in getattr(config, site).workspaces:
+                    retval.append(ws_class[site](name, config.credentials))
+
+        if not retval:
+            raise ConfigError("Requires keys '*.workspaces' to guess repo urls")
+
+        return retval
 
 
 def _common_api_check(reply, expected, raises):
@@ -293,7 +322,7 @@ class Auth:
 
 
 def safe_url(url):
-    if not '@' in url:
+    if '@' not in url:
         return url
 
     parts = urlparse(url)
@@ -310,26 +339,33 @@ class Repo(Auth):
         self.data
         return True
 
+    def exists(self):
+        try:
+            self.check()
+            return True
+        except RepositoryNotFound:
+            return False
+
     @classmethod
     def from_dir(cls, dirname, credentials=None):
         origin = git.Repo(Path.cwd()).remote().url
         logging.debug(origin)
-        repo_name = RepoName.from_origin(origin)
-        return cls.make(repo_name, credentials)
+        repo_ref = RepoRef.from_origin(origin)
+        return cls.make(repo_ref, credentials)
 
     @classmethod
-    def make(cls, repo_name, credentials):
+    def make(cls, repo_ref, credentials):
         repo_classes = {
             'github': GithubRepo,
             'bitbucket': BitbucketRepo,
         }
 
         try:
-            repo_class = repo_classes[repo_name.site]
+            repo_class = repo_classes[repo_ref.site]
         except KeyError:
-            raise UnsupportedSite(repo_name.site)
+            raise UnsupportedSite(repo_ref.site)
 
-        return repo_class(repo_name, credentials.get(repo_name.site))
+        return repo_class(repo_ref, credentials.get(repo_ref.site))
 
     def __repr__(self):
         return "<{} '{}'>".format(self.__class__.__name__, self.name.global_name)
@@ -339,7 +375,7 @@ class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
 
     def __init__(self, name, credentials=None):
-        self.name = RepoName.cast(name, site='bitbucket')
+        self.name = RepoRef.cast(name, site='bitbucket')
 
         super().__init__(credentials)
         self.basic_data = dict(
@@ -402,7 +438,7 @@ class BitbucketRepo(Repo):
         if result.status_code == 404:
             raise RepositoryNotFound(self.name)
 
-        self.api_check(result)
+        self.api_check(result, raises={403: AccessDenied(self.name)})
         return result.json()
 
     @property
@@ -479,7 +515,7 @@ class GithubRepo(Repo):
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):
-        self.name = RepoName.cast(name, site='github')
+        self.name = RepoRef.cast(name, site='github')
 
         super().__init__(credentials)
         self.basic_data = dict(
@@ -531,7 +567,15 @@ class GithubRepo(Repo):
     def data(self):
         logging.debug(self.url)
         result = requests.get(self.url)
-        self.api_check(result)
+
+        # FIXME: api_check may do this
+        if result.status_code == 404:
+            raise RepositoryNotFound(self.name)
+
+        self.api_check(result,
+                       raises={403: AccessDenied(self.name)}
+                       )
+
         return result.json()
 
     @property
@@ -611,7 +655,12 @@ class GithubRepo(Repo):
         print()
 
 
-class BitbucketWorkspace(Auth):
+class Workspace(Auth):
+    def __str__(self):
+        return str(self.name)
+
+
+class BitbucketWorkspace(Workspace):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
 
     def __init__(self, name, credentials):
@@ -619,6 +668,7 @@ class BitbucketWorkspace(Auth):
         if not isinstance(name, WorkspaceName):
             name = WorkspaceName(name, 'bitbucket')
 
+        self.name = name
         self.url = self.BASE_URL.format(name.workspace)
 
     def ls_repos(self):
@@ -637,8 +687,13 @@ class BitbucketWorkspace(Auth):
     def check(self):
         BitbucketRepo.api_check(requests.get(self.auth(self.url)))
 
+    def make_repo(self, reponame):
+        return BitbucketRepo(
+            RepoRef.from_parts(self.name.workspace, reponame, 'bitbucket'),
+            self.credentials)
 
-class GithubWorkspace(Auth):
+
+class GithubWorkspace(Workspace):
     ORG_URL = 'https://api.github.com/orgs/{org}/repos'
     USER_URL = 'https://api.github.com/users/{user}/repos'
 
@@ -647,6 +702,7 @@ class GithubWorkspace(Auth):
         if not isinstance(name, WorkspaceName):
             name = WorkspaceName(name, 'github')
 
+        self.name = name
         self.url = self.ORG_URL.format(org=name.workspace)
         result = requests.get(self.auth(self.url))
         if result.status_code == 404:
@@ -676,3 +732,8 @@ class GithubWorkspace(Auth):
 
     def check(self):
         GithubRepo.api_check(requests.get(self.auth(self.url)))
+
+    def make_repo(self, reponame):
+        return BitbucketRepo(
+            RepoRef.from_parts(self.name.workspace, reponame, 'github'),
+            self.credentials)

@@ -21,6 +21,6 @@ class CloneTests(TestCase):
         ripio = Task()
         ripio.command('bin/ripio --config /dev/null clone gh:ripio-test/private', expected=1)
         ripio.assert_that(ripio.lastcmd.stdout.content, 
-                          hamcrest.contains_string('ERROR 404: Not Found'))
+                          hamcrest.contains_string('RepositoryNotFound: github:ripio-test/private'))
 
-
+#   FIXME: def test_show_no_credentials_warning
