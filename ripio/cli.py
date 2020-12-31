@@ -74,7 +74,7 @@ def get_repo(config, name=None):
 
 def cmd_print_head(config):
     # full_name = ripio.RepoRef.complete(config.repo, config)
-    repo = get_repo(config, )
+    repo = get_repo(config)
     commits = list(repo.last_commits())
     if not commits:
         print("-- repository '{}' is empty".format(repo.full_name))
@@ -128,7 +128,8 @@ def cmd_show_config(config):
 
 
 def cmd_site(config):
-    repo = ripio.Repo.from_dir(Path.cwd(), config.credentials)
+    root = ripio.utils.find_in_ancestors('.git', str(Path.cwd()))
+    repo = ripio.Repo.from_dir(root, config.credentials)
     url = repo.webpage
     print("- openning '{}'".format(url))
     webbrowser.open(url)

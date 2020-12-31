@@ -5,17 +5,17 @@ from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
 import re
-
 import logging
-logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger('git').setLevel(logging.WARN)
-logging.getLogger("urllib3").setLevel(logging.WARN)
 
 import requests
 import git
 import toml
 
 from . import utils
+
+logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger('git').setLevel(logging.WARN)
+logging.getLogger("urllib3").setLevel(logging.WARN)
 
 PROGNAME = 'ripio'
 BITBUCKET = 'bitbucket.org'
@@ -101,6 +101,19 @@ class WrongCompletion(error): pass
 class AccessDenied(error): pass
 
 
+def bitbucket_errors(name):
+    return {
+        403: AccessDenied(name),
+        404: RepositoryNotFound(name)
+    }
+
+def github_errors(name):
+    return {
+        401: AccessDenied(name),
+        404: RepositoryNotFound(name)
+    }
+
+
 class WorkspaceName:
     def __init__(self, full_workspace, site=None):
         if full_workspace.count(':') > 1 or '/' in full_workspace:
@@ -183,6 +196,10 @@ class Completion:
         self.found = []
         self.denied = []
         self.workspaces = self.get_workspaces(config)
+
+        if not self.workspaces:
+            raise ConfigError("Requires keys '*.workspaces' to guess repo urls")
+
         self.complete(name, config)
 
         if not self.found and not self.denied:
@@ -207,22 +224,23 @@ class Completion:
     @classmethod
     def get_workspaces(cls, config):
         retval = []
-
-        try:
-            retval.append(config.bitbucket.credentials.default.split(':')[0])
-        except AttributeError:
-            pass
-
         ws_class = {'bitbucket': BitbucketWorkspace,
                     'github':    GithubWorkspace}
+        sites = ws_class.keys()
 
-        for site in ['bitbucket', 'github']:
-            if hasattr(config, site):
+        for site in sites:
+            try:
+                credentials = config.get_credentials(site)
+                name = credentials.username
+                retval.append(ws_class[site](name, credentials))
+            except AttributeError:
+                pass
+
+            try:
                 for name in getattr(config, site).workspaces:
                     retval.append(ws_class[site](name, config.credentials))
-
-        if not retval:
-            raise ConfigError("Requires keys '*.workspaces' to guess repo urls")
+            except AttributeError:
+                pass
 
         return retval
 
@@ -348,7 +366,7 @@ class Repo(Auth):
 
     @classmethod
     def from_dir(cls, dirname, credentials=None):
-        origin = git.Repo(Path.cwd()).remote().url
+        origin = git.Repo(dirname).remote().url
         logging.debug(origin)
         repo_ref = RepoRef.from_origin(origin)
         return cls.make(repo_ref, credentials)
@@ -385,6 +403,9 @@ class BitbucketRepo(Repo):
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
 
+    def my_check(self, reply, expected=None):
+        self.api_check(reply, expected, raises=bitbucket_errors(self.name))
+
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
         msg = _common_api_check(reply, expected, raises)
@@ -418,7 +439,8 @@ class BitbucketRepo(Repo):
         return instance
 
     def __getattr__(self, attr):
-        assert attr in 'scm slug full_name size access'.split(), "Missing attribute '{}'".format(attr)
+        assert attr in 'scm slug full_name size access'.split(), \
+            "Missing attribute '{}'".format(attr)
 
         try:
             return self.basic_data[attr]
@@ -433,12 +455,7 @@ class BitbucketRepo(Repo):
 
         # FIXME: catch connection exceptions
         result = requests.get(self.url)
-
-        # FIXME: api_check may do this
-        if result.status_code == 404:
-            raise RepositoryNotFound(self.name)
-
-        self.api_check(result, raises={403: AccessDenied(self.name)})
+        self.my_check(result)
         return result.json()
 
     @property
@@ -468,7 +485,7 @@ class BitbucketRepo(Repo):
     def last_commits(self, max_=3):
         commits_url = self.url + '/commits'
         result = requests.get(commits_url)
-        self.api_check(result)
+        self.my_check(result)
         commits = result.json()['values']
 
         for c in commits[:3]:
@@ -480,12 +497,11 @@ class BitbucketRepo(Repo):
 
     def create(self):
         result = requests.post(self.url)
-        self.api_check(result)
+        self.my_check(result)
         return self.slug
 
     def delete(self):
-        self.api_check(requests.delete(self.url), [204],
-                       raises={404: RepositoryNotFound(self.name)})
+        self.my_check(requests.delete(self.url), [204])
 
     def rename(self, new_name):
         if '/' in new_name:
@@ -495,7 +511,7 @@ class BitbucketRepo(Repo):
 
         # FIXME: this is required also on create
         result = requests.put(self.url, data={'name':new_name})
-        self.api_check(result)
+        self.my_check(result)
         real_name = result.headers['Location'].split('/')[-1]
         return real_name
 
@@ -524,6 +540,9 @@ class GithubRepo(Repo):
 
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
+
+    def my_check(self, reply, expected=None):
+        self.api_check(reply, expected, raises=github_errors(self.name))
 
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
@@ -567,15 +586,7 @@ class GithubRepo(Repo):
     def data(self):
         logging.debug(self.url)
         result = requests.get(self.url)
-
-        # FIXME: api_check may do this
-        if result.status_code == 404:
-            raise RepositoryNotFound(self.name)
-
-        self.api_check(result,
-                       raises={403: AccessDenied(self.name)}
-                       )
-
+        self.my_check(result)
         return result.json()
 
     @property
@@ -597,7 +608,7 @@ class GithubRepo(Repo):
         logging.debug(url)
 
         result = requests.get(url)
-        self.api_check(result, [200, 409])
+        self.my_check(result, [200, 409])
         if result.status_code == 409:
             return []
 
@@ -619,13 +630,12 @@ class GithubRepo(Repo):
             url,
             data=json.dumps({'name':self.slug, 'private': True}))
 
-        self.api_check(result, [201])
+        self.my_check(result, [201])
         real_name = result.json()['name']
         return real_name
 
     def delete(self):
-        self.api_check(requests.delete(self.url), [204],
-            raises={404:RepositoryNotFound(self.name)})
+        self.my_check(requests.delete(self.url), [204])
 
     def rename(self, new_name):
         # FIXME: github supports transfers
@@ -641,7 +651,7 @@ class GithubRepo(Repo):
         print(result.status_code)
         print(result.json())
 
-        self.api_check(result)
+        self.my_check(result)
         real_name = result.json()['name'].split('/')[-1]
         return real_name
 
@@ -677,15 +687,15 @@ class BitbucketWorkspace(Workspace):
             next_link = self.auth(next_link)
             result = requests.get(next_link)
             logging.debug(next_link)
-            BitbucketRepo.api_check(result)
+            BitbucketRepo.my_check(result)
 
             page = result.json()
             next_link = page.get('next')
             for repo in page['values']:
                 yield BitbucketRepo.from_data(repo, self.credentials)
 
-    def check(self):
-        BitbucketRepo.api_check(requests.get(self.auth(self.url)))
+#    def check(self):
+#        BitbucketRepo.api_check(requests.get(self.auth(self.url)))
 
     def make_repo(self, reponame):
         return BitbucketRepo(
@@ -722,7 +732,7 @@ class GithubWorkspace(Workspace):
             next_link = self.auth(next_link)
             result = requests.get(next_link)
             logging.debug(next_link)
-            GithubRepo.api_check(result)
+            GithubRepo.my_check(result)
 
             page = result.json()
             next_link = get_next_link(result)
@@ -730,8 +740,8 @@ class GithubWorkspace(Workspace):
             for repo in page:
                 yield GithubRepo.from_data(repo, self.credentials)
 
-    def check(self):
-        GithubRepo.api_check(requests.get(self.auth(self.url)))
+#    def check(self):
+#        GithubRepo.api_check(requests.get(self.auth(self.url)))
 
     def make_repo(self, reponame):
         return BitbucketRepo(

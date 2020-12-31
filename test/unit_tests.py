@@ -2,6 +2,7 @@ import time
 from argparse import Namespace
 from unittest import TestCase
 from pathlib import Path
+from doublex import Stub
 
 import ripio
 
@@ -165,7 +166,7 @@ class Completer(TestCase):
         with self.assertRaises(ripio.ConfigError):
             ripio.Completion('repo0', config)
 
-    def test_slug(self):
+    def test_one_match(self):
         config = Namespace()
         config.credentials = None
         config.bitbucket = Namespace(workspaces=['DavidVilla', 'ripio-test'])
@@ -180,7 +181,7 @@ class Completer(TestCase):
         self.assertEquals(sut.found,
             ['bitbucket:DavidVilla/ripio', 'bitbucket:ripio-test/ripio'])
 
-    def test_missing(self):
+    def test_no_matches(self):
         config = Namespace()
         config.credentials = None
         config.bitbucket = Namespace(workspaces=['ripio-test'])
@@ -188,7 +189,7 @@ class Completer(TestCase):
         with self.assertRaises(ripio.WrongCompletion):
             ripio.Completion('missing', config)
 
-    def test_complete_private_without_credentials(self):
+    def test_bitbucket_private_repo_without_credentials(self):
         config = Namespace()
         config.credentials = None
         config.bitbucket = Namespace(workspaces=['ripio-test'])
@@ -196,9 +197,21 @@ class Completer(TestCase):
         self.assertEquals(sut.found, [])
         self.assertEquals(sut.denied, ['bitbucket:ripio-test/private'])
 
+    def test_github_private_repo_without_credentials(self):
+        config = Namespace()
+        config.credentials = None
+        config.github = Namespace(workspaces=['ripio-test'])
+        sut = ripio.Completion('private', config)
+        self.assertEquals(sut.found, [])
+        self.assertEquals(sut.denied, ['github:ripio-test/private'])
 
+    def test_public_repo_and_default_github_workspace(self):
+        with Stub() as config:
+            config.get_credentials('github').returns(
+                ripio.Credentials(GITHUB_CREDENTIALS))
 
-#    FIXME: def test_complete_with_github_credential_workspace(self):
+        sut = ripio.Completion('ripio', config)
+        self.assertEquals(sut.found, ['github:DavidVilla/ripio'])
 
 
 class EmptyConfigFile(TestCase):
