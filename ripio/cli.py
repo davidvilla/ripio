@@ -42,8 +42,9 @@ def user_confirm(text, valid_answers):
 
 
 def confirm_irrecoverable_operation():
-    user_confirm("This is an IRRECOVERABLE operation!!\nAre you sure? (write uppercase 'yes'): ",
-                 valid_answers=['YES'])
+    user_confirm(
+        "This is an IRRECOVERABLE operation!!\nAre you sure? (write uppercase 'yes'): ",
+        valid_answers=['YES'])
 
 
 def pretty_path(path):
@@ -66,8 +67,23 @@ def cmd_ls_repos(config):
 
 def get_repo(config, name=None):
     name = name or config.repo
-    repo_ref = ripio.RepoRef(name)
-    print("- repository identity is '{}:{}'".format(repo_ref.site, repo_ref.full_name))
+    try:
+        repo_ref = ripio.RepoRef(name)
+        print(f"- repository identity is '{repo_ref}'")
+
+    except ripio.BadRepositoryName:
+        print(f"- trying to complete '{name}' at known workspaces...")
+        completion = ripio.Completion(name, config.config_file)
+
+        if len(completion.found) == 1:
+            repo_ref = ripio.RepoRef(completion.found[0])
+            print("- guessing '{}'".format(repo_ref))
+
+        elif len(completion.found) > 1:
+            print("- serveral completions found:")
+            for r in completion.found:
+                print(f"  - {r}")
+            sys.exit(1)
 
     return ripio.Repo.make(repo_ref, config.credentials)
 
@@ -77,7 +93,7 @@ def cmd_print_head(config):
     repo = get_repo(config)
     commits = list(repo.last_commits())
     if not commits:
-        print("-- repository '{}' is empty".format(repo.full_name))
+        print("- repository '{}' is empty".format(repo.full_name))
         return
 
     for c in commits:
@@ -174,7 +190,7 @@ class BaseConfig(argparse.Namespace):
             self.config_file = ripio.ConfigFile(home_config)
         else:
             raise ripio.MissingConfig
-    
+
         # FIXME: verbosity argument does not affect this, it is previous to setLevel
         # logging.debug("Loading config '{}'".format(self.config_file.fname))
 
@@ -189,7 +205,8 @@ class BaseConfig(argparse.Namespace):
 
 
 def run():
-    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter,
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter,
         description='''\
 Manage hosted git repositories.
 General repository name format is: 'site:owner/name'.
@@ -241,8 +258,8 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_clone = cmds.add_parser('clone', help='clone a repository')
     parser_clone.set_defaults(func=cmd_repo_clone)
     parser_clone.add_argument('--http', dest='proto', default='ssh',
-                            action='store_const', const='https',
-                            help='Use HTTP instead of SSH')
+                              action='store_const', const='https',
+                              help='Use HTTP instead of SSH')
     parser_clone.add_argument('--destdir', default=Path.cwd(), type=Path,
                               help='directory where save repository')
     parser_clone.add_argument('repo', help='repo fullname: owner/slug')
@@ -253,13 +270,11 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_site = cmds.add_parser('site', help='open webpage for the current repository')
     parser_site.set_defaults(func=cmd_site)
 
-
-
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()
     # print("--->", config.verbosity)
     # print("--->", config.destdir)
-    
+
     set_verbosity(config)
     # load_config(config)
 
@@ -269,7 +284,7 @@ Abbreviated names are allowed when suitable configuration is given.
 
     try:
         config.func(config)
-    except ripio.error as e:
+    except ripio.error:
         if config.verbosity == 0:
             print("Try 'ripio -v' for detail")
         raise
@@ -283,6 +298,7 @@ def main_production():
         print(e)
         print('-- fail')
         sys.exit(1)
+
 
 def main_debug():
     run()

@@ -6,7 +6,7 @@ repo.conf
 test/*_CREDENTIALS
 .noseids
 nosetests.xml
-.vscode/.ropeproject/
+.vscode/*
 .pybuild
 build
 debian/.debhelper
