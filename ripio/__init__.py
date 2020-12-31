@@ -229,18 +229,18 @@ class Completion:
         sites = ws_class.keys()
 
         for site in sites:
+            credentials = config.get_credentials(site)
             try:
-                credentials = config.get_credentials(site)
                 name = credentials.username
                 retval.append(ws_class[site](name, credentials))
-            except AttributeError:
-                pass
+            except AttributeError as e:
+                logging.debug(e)
 
             try:
-                for name in getattr(config, site).workspaces:
-                    retval.append(ws_class[site](name, config.credentials))
-            except AttributeError:
-                pass
+                for name in config.get_workspaces(site):
+                    retval.append(ws_class[site](name, credentials))
+            except AttributeError as e:
+                logging.debug(e)
 
         return retval
 
@@ -276,20 +276,15 @@ class ConfigFile:
     def __getattr__(self, key):
         return getattr(self.data, key)
 
-    # # FIXME: bitbucket supersedes that
-    # @property
-    # def credentials(self):
-    #     try:
-    #         return Credentials(self.bitbucket.credentials.default)
-    #     except KeyError:
-    #         raise MissingConfig
-
     def get_credentials(self, site):
         try:
             site = getattr(self, site)
             return Credentials(site.credentials.default)
         except AttributeError:
             return None
+
+    def get_workspaces(self, site):
+        pass
 
     @property
     def destdir(self):
@@ -669,6 +664,9 @@ class Workspace(Auth):
     def __str__(self):
         return str(self.name)
 
+    def __repr__(self)    :
+        return "<Workspace '{}'>".format(str(self))
+
 
 class BitbucketWorkspace(Workspace):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
@@ -744,6 +742,6 @@ class GithubWorkspace(Workspace):
 #        GithubRepo.api_check(requests.get(self.auth(self.url)))
 
     def make_repo(self, reponame):
-        return BitbucketRepo(
+        return GithubRepo(
             RepoRef.from_parts(self.name.workspace, reponame, 'github'),
             self.credentials)

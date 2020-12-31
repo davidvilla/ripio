@@ -2,7 +2,7 @@ import time
 from argparse import Namespace
 from unittest import TestCase
 from pathlib import Path
-from doublex import Stub
+from doublex import Stub, ANY_ARG
 
 import ripio
 
@@ -161,57 +161,60 @@ class GithubUser(TestCase):
 
 
 class Completer(TestCase):
+    def setUp(self):
+        with Stub() as self.config:
+            self.config.get_workspaces(ANY_ARG).returns([])
+
     def test_no_workspaces_in_config(self):
-        config = Namespace()
         with self.assertRaises(ripio.ConfigError):
-            ripio.Completion('repo0', config)
+            ripio.Completion('repo0', self.config)
 
     def test_one_match(self):
-        config = Namespace()
-        config.credentials = None
-        config.bitbucket = Namespace(workspaces=['DavidVilla', 'ripio-test'])
-        sut = ripio.Completion('repo0', config)
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['DavidVilla', 'ripio-test'])
+
+        sut = ripio.Completion('repo0', self.config)
         self.assertEquals(sut.found, ['bitbucket:ripio-test/repo0'])
 
     def test_two_matches(self):
-        config = Namespace()
-        config.credentials = None
-        config.bitbucket = Namespace(workspaces=['DavidVilla', 'ripio-test'])
-        sut = ripio.Completion('ripio', config)
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['DavidVilla', 'ripio-test'])
+
+        sut = ripio.Completion('ripio', self.config)
         self.assertEquals(sut.found,
             ['bitbucket:DavidVilla/ripio', 'bitbucket:ripio-test/ripio'])
 
     def test_no_matches(self):
-        config = Namespace()
-        config.credentials = None
-        config.bitbucket = Namespace(workspaces=['ripio-test'])
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['ripio-test'])
 
         with self.assertRaises(ripio.WrongCompletion):
-            ripio.Completion('missing', config)
+            ripio.Completion('missing', self.config)
 
     def test_bitbucket_private_repo_without_credentials(self):
-        config = Namespace()
-        config.credentials = None
-        config.bitbucket = Namespace(workspaces=['ripio-test'])
-        sut = ripio.Completion('private', config)
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['ripio-test'])
+
+        sut = ripio.Completion('private', self.config)
         self.assertEquals(sut.found, [])
         self.assertEquals(sut.denied, ['bitbucket:ripio-test/private'])
 
     def test_github_private_repo_without_credentials(self):
-        config = Namespace()
-        config.credentials = None
-        config.github = Namespace(workspaces=['ripio-test'])
-        sut = ripio.Completion('private', config)
-        self.assertEquals(sut.found, [])
-        self.assertEquals(sut.denied, ['github:ripio-test/private'])
+        with self.config as c:
+            c.get_workspaces('github').returns(['ripio-test'])
 
-    def test_public_repo_and_default_github_workspace(self):
-        with Stub() as config:
-            config.get_credentials('github').returns(
-                ripio.Credentials(GITHUB_CREDENTIALS))
+        with self.assertRaises(ripio.WrongCompletion):
+            sut = ripio.Completion('private', self.config)
+            self.assertEquals(sut.found, [])
+            self.assertEquals(sut.denied, ['github:ripio-test/private'])
 
-        sut = ripio.Completion('ripio', config)
-        self.assertEquals(sut.found, ['github:DavidVilla/ripio'])
+    def test_public_repo_and_default_bitbucket_workspace(self):
+        with self.config:
+            self.config.get_credentials('bitbucket').returns(
+                ripio.Credentials(BITBUCKET_CREDENTIALS))
+
+        sut = ripio.Completion('ripio', self.config)
+        self.assertEquals(sut.found, ['bitbucket:DavidVilla/ripio'])
 
 
 class EmptyConfigFile(TestCase):
