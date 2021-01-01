@@ -1,19 +1,14 @@
 #!/usr/bin/python3 -u
 
+import os
 import sys
 import argparse
 import logging
 from pathlib import Path
-from pprint import pprint
 import webbrowser
 
 import ripio
-
-
-def to_kb(bytes):
-    "to kilobytes, not kibibytes"
-    k = float(bytes) / 1000
-    return "{:.0f} KB".format(k)
+import ripio.utils as utils
 
 
 def set_verbosity(args):
@@ -22,47 +17,6 @@ def set_verbosity(args):
         print("Verbosity set to {}".format(logging.getLevelName(level)))
         print("Try 'ripio -vvv' for even more detail")
     logging.getLogger().setLevel(level)
-
-
-def canceled():
-    print('-- canceled')
-    sys.exit(1)
-
-
-def user_confirm(text, valid_answers):
-    try:
-        answer = input(text)
-    except KeyboardInterrupt:
-        canceled()
-
-    if answer not in valid_answers:
-        canceled()
-
-    return answer
-
-
-def confirm_irrecoverable_operation():
-    user_confirm(
-        "This is an IRRECOVERABLE operation!!\nAre you sure? (write uppercase 'yes'): ",
-        valid_answers=['YES'])
-
-
-def pretty_path(path):
-    return str(path).replace(str(Path.home()), '~')
-
-
-def cmd_ls_repos(config):
-    ws_name = ripio.WorkspaceName(config.owner)
-    if ws_name.site == 'bitbucket':
-        ws = ripio.BitbucketWorkspace(ws_name, config.credentials.get('bitbucket'))
-    elif ws_name.site == 'github':
-        ws = ripio.GithubWorkspace(ws_name, config.credentials.get('github'))
-    else:
-        raise ripio.UnsupportedSite(ws_name.site)
-
-    for i, repo in enumerate(ws.ls_repos()):
-        print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
-            i+1, to_kb(repo.size), repo))
 
 
 def get_repo(config, name=None):
@@ -88,8 +42,21 @@ def get_repo(config, name=None):
     return ripio.Repo.make(repo_ref, config.credentials)
 
 
+def cmd_ls_repos(config):
+    ws_name = ripio.WorkspaceName(config.owner)
+    if ws_name.site == 'bitbucket':
+        ws = ripio.BitbucketWorkspace(ws_name, config.credentials.get('bitbucket'))
+    elif ws_name.site == 'github':
+        ws = ripio.GithubWorkspace(ws_name, config.credentials.get('github'))
+    else:
+        raise ripio.UnsupportedSite(ws_name.site)
+
+    for i, repo in enumerate(ws.ls_repos()):
+        print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
+            i+1, utils.to_kB(repo.size), repo))
+
+
 def cmd_print_head(config):
-    # full_name = ripio.RepoRef.complete(config.repo, config)
     repo = get_repo(config)
     commits = list(repo.last_commits())
     if not commits:
@@ -117,7 +84,7 @@ def cmd_repo_create(config):
 def cmd_repo_delete(config):
     repo = get_repo(config)
     repo.check()
-    confirm_irrecoverable_operation()
+    utils.confirm_irrecoverable_operation()
     print("- deleting '{}'".format(repo.full_name))
     repo.delete()
 
@@ -133,14 +100,23 @@ def cmd_repo_clone(config):
         raise ripio.DestinationDirectoryAlreadyExists(destdir)
 
     print("- cloning({}) '{}' to '{}'".format(
-        config.proto, repo.full_name, pretty_path(destdir)))
+        config.proto, repo.full_name, utils.pretty_path(destdir)))
     repo.clone(destdir, config.proto)
 
 
 def cmd_show_config(config):
     config = vars(config)
     del config['func']
-    pprint(config)
+
+    print("Command line config:")
+    for key, value in sorted(config.items()):
+        if key == 'config_file':
+            continue
+
+        print(f"- {key}: '{value}'")
+
+    print("\nConfig file:")
+    print(config['config_file'])
 
 
 def cmd_site(config):
@@ -151,43 +127,10 @@ def cmd_site(config):
     webbrowser.open(url)
 
 
-# def load_config(args):
-#     config = None
-#     home_config = Path.home() / '.config/ripio'
-
-#     if args.config is not None:
-#         config = ripio.ConfigFile(args.config)
-#     elif home_config.exists():
-#         config = ripio.ConfigFile(home_config)
-#     else:
-#         raise ripio.MissingConfig
-
-#     logging.debug("Loading config '{}'".format(config.fname))
-
-#     try:
-#         for key in ['destdir', 'bitbucket', 'github']:
-#             try:
-#                 setattr(args, key, getattr(config, key))
-#             except ripio.MissingConfig:
-#                 pass
-
-#         args.credentials = {
-#             'bitbucket': config.get_credentials('bitbucket'),
-#             'github':    config.get_credentials('github')}
-
-#     except FileNotFoundError as e:
-#         logging.error(e)
-
-
 class BaseConfig(argparse.Namespace):
     def load_file(self):
-        self.config_file = None
-        home_config = Path.home() / '.config/ripio'
-
-        if self.config is not None:
+        if os.path.exists(self.config):
             self.config_file = ripio.ConfigFile(self.config)
-        elif home_config.exists():
-            self.config_file = ripio.ConfigFile(home_config)
         else:
             raise ripio.MissingConfig
 
@@ -217,9 +160,8 @@ Examples:
 Abbreviated names are allowed when suitable configuration is given.
 ''')
 
-    parser.add_argument('--config', help='alternate config file')
-#    parser.add_argument('-c', '--credentials', type=ripio.Credentials.make,
-#                        help="authentication credentials with 'user:pass' format")
+    parser.add_argument('--config', help='alternate config file',
+                        default=Path.home() / '.config/ripio')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='verbosity level. -v:INFO, -vv:DEBUG')
     cmds = parser.add_subparsers()
@@ -272,11 +214,7 @@ Abbreviated names are allowed when suitable configuration is given.
 
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()
-    # print("--->", config.verbosity)
-    # print("--->", config.destdir)
-
     set_verbosity(config)
-    # load_config(config)
 
     if not hasattr(config, 'func'):
         parser.print_help()

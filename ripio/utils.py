@@ -1,5 +1,40 @@
 import os
+import sys
 from collections import namedtuple
+from pathlib import Path
+
+
+def to_kB(bytes):
+    "to kilobytes, not kibibytes"
+    k = float(bytes) / 1000
+    return "{:.0f} KB".format(k)
+
+
+def canceled():
+    print('-- canceled')
+    sys.exit(1)
+
+
+def user_confirm(text, valid_answers):
+    try:
+        answer = input(text)
+    except KeyboardInterrupt:
+        canceled()
+
+    if answer not in valid_answers:
+        canceled()
+
+    return answer
+
+
+def confirm_irrecoverable_operation():
+    user_confirm(
+        "This is an UNRECOVERABLE operation!!\nAre you sure? (write uppercase 'yes'): ",
+        valid_answers=['YES'])
+
+
+def pretty_path(path):
+    return str(path).replace(str(Path.home()), '~')
 
 
 # https://stackoverflow.com/a/46813147/722624

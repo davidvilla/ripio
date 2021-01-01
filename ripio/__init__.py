@@ -21,11 +21,16 @@ PROGNAME = 'ripio'
 BITBUCKET = 'bitbucket.org'
 GITHUB = 'github.com'
 
+sites = {
+    BITBUCKET: 'bitbucket',
+    GITHUB: 'github',
+}
+
 
 CONFIG_USAGE = '''\
 ERROR: No config file available.
 
-Provide a config file with -c argument or default location: ~/.config/ripio.
+Provide a config file with --config argument or its default location: '~/.config/ripio'.
 
     [clone]
     destdir = "~/repos"
@@ -42,7 +47,7 @@ Provide a config file with -c argument or default location: ~/.config/ripio.
     [github.credentials]
     default = "JohnDoe:secret"
 
-Use these features to create "safe" passwords:
+Use these features to create "safe" credentials:
 - https://bitbucket.org/account/settings/app-passwords/
 - https://github.com/settings/tokens
 '''
@@ -148,11 +153,6 @@ class RepoRef:
 
     @classmethod
     def from_origin(self, path):
-        sites = {
-            GITHUB: 'github',
-            BITBUCKET: 'bitbucket'
-        }
-
         if path.startswith('git@'):
             fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', path)[0]
             return RepoRef('{}:{}'.format(sites[fields[0]], fields[1]))
@@ -258,7 +258,10 @@ class ConfigFile:
             return None
 
     def get_workspaces(self, site):
-        return getattr(self.data, site).workspaces
+        try:
+            return getattr(self.data, site).workspaces
+        except AttributeError:
+            return []
 
     @property
     def destdir(self):
@@ -276,6 +279,17 @@ class ConfigFile:
     def __repr__(self):
         return "<Config '{}'>".format(self.fname)
 
+    def __str__(self):
+        retval = "- credentials\n"
+        for site in ['bitbucket', 'github']:
+            retval += "  - {:10} {}\n".format(site+':', self.get_credentials(site))
+
+        retval += "- workspaces\n"
+        for site in ['bitbucket', 'github']:
+            retval += "  - {:10} {}\n".format(site+':', self.get_workspaces(site))
+
+        return retval
+
 
 class Credentials:
     def __init__(self, credentials):
@@ -292,7 +306,10 @@ class Credentials:
         return (self.username, self.password) == (other.username, other.password)
 
     def __repr__(self):
-        return "<Credentials '{}:{}'>".format(self.username, '*' * len(self.password))
+        return "<Credentials {}>".format(self)
+
+    def __str__(self):
+        return "'{}:{}'".format(self.username, '*' * len(self.password))
 
 
 class Auth:
