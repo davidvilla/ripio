@@ -19,13 +19,16 @@ def set_verbosity(args):
     logging.getLogger().setLevel(level)
 
 
-def get_repo(config, name=None):
+def get_repo(config, name=None, guess=True):
     name = name or config.repo
     try:
         repo_ref = ripio.RepoRef(name)
         print(f"- repository identity is '{repo_ref}'")
 
     except ripio.BadRepositoryName:
+        if not guess:
+            raise
+
         print(f"- trying to complete '{name}' at known workspaces...")
         completion = ripio.Completion(name, config.config_file)
 
@@ -76,7 +79,7 @@ def cmd_repo_rename(config):
 
 
 def cmd_repo_create(config):
-    repo = get_repo(config)
+    repo = get_repo(config, guess=False)
     name = repo.create()
     print("- repository '{}' created".format(name))
 
@@ -127,6 +130,11 @@ def cmd_site(config):
     webbrowser.open(url)
 
 
+def cmd_info(config):
+    repo = get_repo(config)
+    print(repo.info())
+
+
 class BaseConfig(argparse.Namespace):
     def load_file(self):
         if os.path.exists(self.config):
@@ -148,6 +156,8 @@ class BaseConfig(argparse.Namespace):
 
 
 def run():
+    repo_help = 'repo ref (site:owner/slug) or name'
+
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         description='''\
@@ -181,21 +191,21 @@ Abbreviated names are allowed when suitable configuration is given.
 
     parser_head = cmds.add_parser('head', help='show last commits')
     parser_head.set_defaults(func=cmd_print_head)
-    parser_head.add_argument('repo', help='repo fullname: owner/slug')
+    parser_head.add_argument('repo', help=repo_help)
 
     parser_rename = cmds.add_parser('rename', help='rename repository')
     parser_rename.set_defaults(func=cmd_repo_rename)
-    parser_rename.add_argument('repo', help='repo fullname: owner/slug')
+    parser_rename.add_argument('repo', help=repo_help)
     parser_rename.add_argument('new_name', metavar='new-name',
                                help='new repository name')
 
     parser_create = cmds.add_parser('create', help='create new repository')
     parser_create.set_defaults(func=cmd_repo_create)
-    parser_create.add_argument('repo', help='repo fullname: owner/slug')
+    parser_create.add_argument('repo', help=repo_help)
 
     parser_delete = cmds.add_parser('delete', help='delete a repository')
     parser_delete.set_defaults(func=cmd_repo_delete)
-    parser_delete.add_argument('repo', help='repo fullname: owner/slug')
+    parser_delete.add_argument('repo', help=repo_help)
 
     parser_clone = cmds.add_parser('clone', help='clone a repository')
     parser_clone.set_defaults(func=cmd_repo_clone)
@@ -204,13 +214,17 @@ Abbreviated names are allowed when suitable configuration is given.
                               help='Use HTTP instead of SSH')
     parser_clone.add_argument('--destdir', default=Path.cwd(), type=Path,
                               help='directory where save repository')
-    parser_clone.add_argument('repo', help='repo fullname: owner/slug')
+    parser_clone.add_argument('repo', help=repo_help)
 
     parser_config = cmds.add_parser('config', help='show config')
     parser_config.set_defaults(func=cmd_show_config)
 
     parser_site = cmds.add_parser('site', help='open webpage for the current repository')
     parser_site.set_defaults(func=cmd_site)
+
+    parser_info = cmds.add_parser('info', help='show repository info')
+    parser_info.set_defaults(func=cmd_info)
+    parser_info.add_argument('repo', help=repo_help)
 
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()

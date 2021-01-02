@@ -107,6 +107,8 @@ class AccessDenied(error):
     def __init__(self, arg):
         self.value = str(arg)
 
+class AlreadyExists(error): pass
+
 
 class WorkspaceName:
     def __init__(self, full_workspace, site=None):
@@ -358,7 +360,9 @@ class Repo(Auth):
         # FIXME: catch connection exceptions
         result = requests.get(self.url)
         self.reply_check(result)
-        return result.json()
+        retval = result.json()
+        retval['access'] = self._get_access(retval)
+        return retval
 
     def __getattr__(self, attr):
         assert attr in 'scm slug full_name size access'.split(), \
@@ -392,6 +396,18 @@ class Repo(Auth):
 
     def __repr__(self):
         return "<{} '{}'>".format(self.__class__.__name__, self.name.global_name)
+
+    def info(self):
+        data = dict(
+            access=self.access,
+            size=utils.to_kB(self.size)
+        )
+
+        retval = ""
+        for key, val in data.items():
+            retval += f"- {key+':':8} {val:>10}\n"
+
+        return retval
 
 
 def api_check(reply, expected, raises):
@@ -467,11 +483,13 @@ class BitbucketRepo(Repo):
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
 
-    def reply_check(self, reply, expected=None):
-        Bitbucket.api_check(reply, expected, raises={
+    def reply_check(self, reply, expected=None, raises=None):
+        raises = raises or {}
+        raises.update({
             403: AccessDenied(self.name),
             404: RepositoryNotFound(self.name)
         })
+        Bitbucket.api_check(reply, expected, raises=raises)
 
     @classmethod
     def from_data(cls, data, credentials=None):
@@ -483,6 +501,9 @@ class BitbucketRepo(Repo):
             size=data['size'],
             access='private' if data['is_private'] else 'public')
         return instance
+
+    def _get_access(self, data):
+        return 'private' if data['is_private'] else 'public'
 
     @property
     @lru_cache()
@@ -522,8 +543,10 @@ class BitbucketRepo(Repo):
                 message = c['message'])
 
     def create(self):
-        result = requests.post(self.url)
-        self.reply_check(result)
+        result = requests.post(self.url, data={'is_private':True})
+        self.reply_check(result, raises={
+            400: AlreadyExists(self.name)
+        })
         return self.slug
 
     def delete(self):
@@ -554,6 +577,7 @@ class BitbucketRepo(Repo):
 class GithubRepo(Repo):
     BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
     ORG_URL  = 'https://api.github.com/orgs/{org}/repos'
+    OWNER_URL = 'https://api.github.com/user/repos'
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):
@@ -567,11 +591,13 @@ class GithubRepo(Repo):
         self.url = self.auth(self.BASE_URL.format(
             owner=self.name.owner.workspace, repo=self.name.slug))
 
-    def reply_check(self, reply, expected=None):
-        Github.api_check(reply, expected, raises={
+    def reply_check(self, reply, expected=None, raises=None):
+        raises = raises or {}
+        raises.update({
             401: AccessDenied(self.name),
             404: RepositoryNotFound(self.name)
         })
+        Github.api_check(reply, expected, raises=raises)
 
     @classmethod
     def from_data(cls, data, credentials=None):
@@ -583,6 +609,9 @@ class GithubRepo(Repo):
             size=data['size'],
             access='private' if data['private'] else 'public')
         return instance
+
+    def _get_access(self, data):
+        return 'private' if data['private'] else 'public'
 
     @property
     @lru_cache()
@@ -617,15 +646,23 @@ class GithubRepo(Repo):
                 date    = c['commit']['author']['date'],
                 message = c['commit']['message'])
 
+    def get_user_url(self):
+        if self.name.owner.workspace.lower() == self.credentials.username.lower():
+            return self.OWNER_URL
+
+        return self.ORG_URL.format(org=self.name.owner.workspace)
+
     def create(self):
-        url = self.auth(self.ORG_URL.format(org=self.name.owner.workspace))
+        url = self.auth(self.get_user_url())
         logging.debug(url)
 
         result = requests.post(
             url,
             data=json.dumps({'name': self.slug, 'private': True}))
 
-        self.reply_check(result, [201])
+        self.reply_check(result, [201], raises={
+            422: AlreadyExists(self.name)
+        })
         real_name = result.json()['name']
         return real_name
 
@@ -633,7 +670,7 @@ class GithubRepo(Repo):
         self.reply_check(requests.delete(self.url), [204])
 
     def rename(self, new_name):
-        # FIXME: github supports transfers using API
+        # FIXME: github API supports transfers
         if '/' in new_name:
             raise error('New name must have no workspace, transfer is not supported')
 
@@ -702,8 +739,9 @@ class BitbucketWorkspace(Workspace):
 
 
 class GithubWorkspace(Workspace):
-    ORG_URL = 'https://api.github.com/orgs/{org}/repos'
-    USER_URL = 'https://api.github.com/users/{user}/repos'
+    ORG_URL   = 'https://api.github.com/orgs/{org}/repos'
+    USER_URL  = 'https://api.github.com/users/{user}/repos'
+    OWNER_URL = 'https://api.github.com/user/repos'
 
     def __init__(self, name, credentials):
         super().__init__(credentials)
@@ -716,7 +754,13 @@ class GithubWorkspace(Workspace):
         if result.status_code == 404:
             logging.info("'{}' is not an organization. Trying as user.".format(
                 name.workspace))
-            self.url = self.USER_URL.format(user=name.workspace)
+            self.url = self.get_user_url()
+
+    def get_user_url(self):
+        if self.name.workspace.lower() == self.credentials.username.lower():
+            return self.OWNER_URL + '?type=owner'
+
+        return self.USER_URL.format(user=self.name.workspace)
 
     def ls_repos(self):
         def get_next_link(result):
