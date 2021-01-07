@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import sys
 import json
 from pathlib import Path
 from functools import lru_cache
@@ -197,8 +198,9 @@ class Completion:
         self.complete(name, config)
 
         if not self.found and not self.denied:
-            raise WrongCompletion("No guess found for any known workspace: '{}'.".format(
-                str.join(', ', [str(x) for x in self.workspaces])))
+            workspaces = str.join('\n', [" - {}".format(x) for x in self.workspaces])
+            logging.error("No guess found for any known workspace:\n{}".format(workspaces))
+            raise WrongCompletion(name)
 
     def complete(self, name, config):
         try:
@@ -245,9 +247,13 @@ class ConfigFile:
             self.data = utils.dictToObject({})
             return
 
-        self.fname = fname
-        self.toml = toml.load(fname)
-        self.data = utils.dictToObject(self.toml)
+        try:
+            self.fname = fname
+            self.toml = toml.load(fname)
+            self.data = utils.dictToObject(self.toml)
+        except toml.decoder.TomlDecodeError as e:
+            logging.error("Wrong config file:\n  {}".format(e))
+            sys.exit(1)
 
     def __getattr__(self, key):
         return getattr(self.data, key)
