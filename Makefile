@@ -5,8 +5,10 @@
 test:
 	nosetests3 test
 
-release:
-	python3 setup.py sdist upload
+pypi-release:
+	$(RM) -r dist
+	python3 setup.py sdist
+	twine upload dist/*
 
 clean:
 	$(RM) -r build *.egg-info venv dist
