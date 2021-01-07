@@ -29,8 +29,6 @@ sites = {
 
 
 CONFIG_USAGE = '''\
-ERROR: No config file available.
-
 Provide a config file with --config argument or its default location: '~/.config/ripio'.
 
     [clone]
@@ -84,7 +82,7 @@ class ConfigError(error): pass
 
 class MissingConfig(error):
     def __str__(self):
-        return CONFIG_USAGE
+        return "ERROR: No config file available.\n\n" + CONFIG_USAGE
 
 class BadRepositoryName(error): pass
 
@@ -248,7 +246,8 @@ class ConfigFile:
             self.toml = toml.load(fname)
             self.data = utils.dictToObject(self.toml)
         except toml.decoder.TomlDecodeError as e:
-            logging.error("Wrong config file:\n  {}".format(e))
+            logging.error("Wrong config file:\n  {}\n".format(e))
+            print(CONFIG_USAGE)
             sys.exit(1)
 
     def __getattr__(self, key):

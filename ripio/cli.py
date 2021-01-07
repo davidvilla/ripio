@@ -113,7 +113,7 @@ def cmd_show_config(config):
 
     print("Command line config:")
     for key, value in sorted(config.items()):
-        if key == 'config_file':
+        if key in ['config_file', 'parser']:
             continue
 
         print(f"- {key}: '{value}'")
@@ -133,6 +133,10 @@ def cmd_site(config):
 def cmd_info(config):
     repo = get_repo(config)
     print(repo.info())
+
+
+def cmd_help(config):
+    config.parser.print_help()
 
 
 class BaseConfig(argparse.Namespace):
@@ -175,6 +179,10 @@ Abbreviated names are allowed when suitable configuration is given.
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='verbosity level. -v:INFO, -vv:DEBUG')
     cmds = parser.add_subparsers()
+
+    parser_help = cmds.add_parser('help', help='show help')
+    parser_help.set_defaults(func=cmd_help)
+
     parser_ls = cmds.add_parser(
         'ls', help='list repositories',
         formatter_class=argparse.RawTextHelpFormatter,
@@ -235,6 +243,7 @@ Abbreviated names are allowed when suitable configuration is given.
         sys.exit(1)
 
     try:
+        config.parser = parser
         config.func(config)
     except ripio.error:
         if config.verbosity == 0:
