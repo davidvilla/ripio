@@ -37,16 +37,12 @@ Provide a config file with --config argument or its default location: '~/.config
     destdir = "~/repos"
 
     [bitbucket]
+    credentials = "JohnDoe:secret"
     workspaces = ["team1", "team2"]
 
-    [bitbucket.credentials]
-    default = "JohnDoe:secret"
-
     [github]
+    credentials = "JohnDoe:secret"
     workspaces = ["org1", "org2"]
-
-    [github.credentials]
-    default = "JohnDoe:secret"
 
 Use these features to create "safe" credentials:
 - https://bitbucket.org/account/settings/app-passwords/
@@ -261,7 +257,7 @@ class ConfigFile:
     def get_credentials(self, site):
         try:
             site = getattr(self, site)
-            return Credentials(site.credentials.default)
+            return Credentials(site.credentials)
         except AttributeError:
             return None
 
