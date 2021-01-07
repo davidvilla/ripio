@@ -160,7 +160,7 @@ class GithubUser(TestCase):
     #     self.assertEquals(name, 'removable')
 
 
-class Completer(TestCase):
+class Completion(TestCase):
     def setUp(self):
         with Stub() as self.config:
             self.config.get_workspaces(ANY_ARG).returns([])
@@ -268,4 +268,3 @@ class Github_URL(TestCase):
 
 
 # FIXME: test "cmd: ripio site"
-

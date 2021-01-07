@@ -111,15 +111,16 @@ def cmd_show_config(config):
     config = vars(config)
     del config['func']
 
-    print("Command line config:")
+    print("command line config:")
     for key, value in sorted(config.items()):
         if key in ['config_file', 'parser']:
             continue
 
         print(f"- {key}: '{value}'")
 
-    print("\nConfig file:")
+    print("\nconfig file:")
     print(config['config_file'])
+    print("run 'ripio help' for a config file example.")
 
 
 def cmd_site(config):
@@ -166,13 +167,13 @@ def run():
         formatter_class=argparse.RawTextHelpFormatter,
         description='''\
 Manage hosted git repositories.
-General repository name format is: 'site:owner/name'.
+General repository reference format is: 'site:owner/name'.
 Examples:
 - 'github:twitter/wordpress' or 'gh:twitter/wordpress'
 - 'bitbucket:paypal/exmaple' or 'bb:paypal/exmaple'
 
-Abbreviated names are allowed when suitable configuration is given.
-''')
+Abbreviated references (name only) are allowed when 'workspaces' are configured.
+''' + ripio.CONFIG_USAGE)
 
     parser.add_argument('--config', help='alternate config file',
                         default=Path.home() / '.config/ripio')

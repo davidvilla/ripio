@@ -27,3 +27,11 @@ class CloneTests(TestCase):
             hamcrest.contains_string('RepositoryNotFound: github:ripio-test/private'))
 
 #   FIXME: def test_show_no_credentials_warning
+
+    def test_old_config(self):
+        ripio = Task()
+        ripio.command('bin/ripio --config test/fixtures/deprecated.conf create gh:ripio-test/foo',
+                      expected=1)
+        ripio.assert_that(
+            ripio.lastcmd.stdout.content,
+            hamcrest.contains_string('AccessDenied: github:ripio-test/foo'))

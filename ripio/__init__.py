@@ -223,8 +223,8 @@ class Completion:
             try:
                 name = credentials.username
                 retval.append(ws_class[site](name, credentials))
-            except AttributeError as e:
-                logging.debug(e)
+            except AttributeError:
+                logging.debug("No credentials found for '{}'".format(site))
 
             try:
                 for name in config.get_workspaces(site):
@@ -648,7 +648,8 @@ class GithubRepo(Repo):
                 message = c['commit']['message'])
 
     def get_user_url(self):
-        if self.name.owner.workspace.lower() == self.credentials.username.lower():
+        if self.credentials and \
+            self.name.owner.workspace.lower() == self.credentials.username.lower():
             return self.OWNER_URL
 
         return self.ORG_URL.format(org=self.name.owner.workspace)
@@ -758,7 +759,8 @@ class GithubWorkspace(Workspace):
             self.url = self.get_user_url()
 
     def get_user_url(self):
-        if self.name.workspace.lower() == self.credentials.username.lower():
+        if self.credentials \
+            and self.name.workspace.lower() == self.credentials.username.lower():
             return self.OWNER_URL + '?type=owner'
 
         return self.USER_URL.format(user=self.name.workspace)
