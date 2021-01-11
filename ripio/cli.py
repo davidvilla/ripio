@@ -100,7 +100,13 @@ def cmd_repo_clone(config):
         raise ripio.RepositoryNotFound(repo.name)
 
     if Path(destdir).exists():
-        raise ripio.DestinationDirectoryAlreadyExists(destdir)
+        local_clone = ripio.Repo.from_dir(destdir, config.credentials)
+        if local_clone.ref == repo.ref:
+            raise ripio.RepositoryAlreadyCloned(destdir)
+        else:
+            raise ripio.UnrelatedRepository(destdir, local_clone.ref)
+
+        # raise ripio.DirectoryAlreadyExists(destdir)
 
     print("- cloning({}) '{}' to '{}'".format(
         config.proto, repo.full_name, utils.pretty_path(destdir)))

@@ -93,8 +93,11 @@ class BadWorkspaceName(error):
 
 class UnsupportedSite(error): pass
 
-class DestinationDirectoryAlreadyExists(error):
+class DirectoryAlreadyExists(error):
     reason = 'destination directory already EXISTS'
+
+class DirectoryIsNotRepository(error):
+    reason = 'destination directory exists but is NOT a repository'
 
 class WrongCompletion(error): pass
 
@@ -104,6 +107,17 @@ class AccessDenied(error):
 
 class AlreadyExists(error): pass
 
+class MissingRemoteOrigin(error):
+    reason = "no remote 'origin' for repository"
+
+class RepositoryAlreadyCloned(error):
+    reason = "repository already cloned"
+
+class UnrelatedRepository(error):
+    reason = "unrelated repository destination directory"
+    def __init__(self, destdir, repo_ref):
+        assert isinstance(repo_ref, RepoRef)
+        self.value = str(destdir), str(repo_ref)
 
 class WorkspaceName:
     def __init__(self, full_workspace, site=None):
@@ -207,9 +221,9 @@ class Completion:
             try:
                 repo = ws.make_repo(name)
                 if repo.exists():
-                    self.found.append(repo.name.global_name)
+                    self.found.append(repo.ref.global_name)
             except AccessDenied:
-                self.denied.append(repo.name.global_name)
+                self.denied.append(repo.ref.global_name)
 
     @classmethod
     def list_workspaces(cls, config):
@@ -376,7 +390,13 @@ class Repo(Auth):
 
     @classmethod
     def from_dir(cls, dirname, credentials=None):
-        origin = git.Repo(dirname).remote().url
+        try:
+            origin = git.Repo(dirname).remote().url
+        except git.exc.InvalidGitRepositoryError:
+            raise DirectoryIsNotRepository(dirname)
+        except ValueError:
+            raise MissingRemoteOrigin(dirname)
+
         logging.debug(origin)
         repo_ref = RepoRef.from_origin(origin)
         return cls.make(repo_ref, credentials)
@@ -396,7 +416,7 @@ class Repo(Auth):
         return repo_class(repo_ref, credentials.get(repo_ref.site))
 
     def __repr__(self):
-        return "<{} '{}'>".format(self.__class__.__name__, self.name.global_name)
+        return "<{} '{}'>".format(self.__class__.__name__, self.ref.global_name)
 
     def info(self):
         data = dict(
@@ -474,21 +494,21 @@ class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
 
     def __init__(self, name, credentials=None):
-        self.name = RepoRef.cast(name, site='bitbucket')
+        self.ref = RepoRef.cast(name, site='bitbucket')
 
         super().__init__(credentials)
         self.basic_data = dict(
-            full_name=self.name.full_name,
-            slug=self.name.slug)
+            full_name=self.ref.full_name,
+            slug=self.ref.slug)
 
         self.url = self.auth(self.BASE_URL.format(
-            owner=self.name.owner.workspace, repo=self.name.slug))
+            owner=self.ref.owner.workspace, repo=self.ref.slug))
 
     def reply_check(self, reply, expected=None, raises=None):
         raises = raises or {}
         raises.update({
-            403: AccessDenied(self.name),
-            404: RepositoryNotFound(self.name)
+            403: AccessDenied(self.ref),
+            404: RepositoryNotFound(self.ref)
         })
         Bitbucket.api_check(reply, expected, raises=raises)
 
@@ -546,7 +566,7 @@ class BitbucketRepo(Repo):
     def create(self):
         result = requests.post(self.url, data={'is_private':True})
         self.reply_check(result, raises={
-            400: AlreadyExists(self.name)
+            400: AlreadyExists(self.ref)
         })
         return self.slug
 
@@ -582,21 +602,21 @@ class GithubRepo(Repo):
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):
-        self.name = RepoRef.cast(name, site='github')
+        self.ref = RepoRef.cast(name, site='github')
 
         super().__init__(credentials)
         self.basic_data = dict(
-            full_name=self.name.full_name,
-            slug=self.name.slug)
+            full_name=self.ref.full_name,
+            slug=self.ref.slug)
 
         self.url = self.auth(self.BASE_URL.format(
-            owner=self.name.owner.workspace, repo=self.name.slug))
+            owner=self.ref.owner.workspace, repo=self.ref.slug))
 
     def reply_check(self, reply, expected=None, raises=None):
         raises = raises or {}
         raises.update({
-            401: AccessDenied(self.name),
-            404: RepositoryNotFound(self.name)
+            401: AccessDenied(self.ref),
+            404: RepositoryNotFound(self.ref)
         })
         Github.api_check(reply, expected, raises=raises)
 
@@ -649,10 +669,10 @@ class GithubRepo(Repo):
 
     def get_user_url(self):
         if self.credentials and \
-            self.name.owner.workspace.lower() == self.credentials.username.lower():
+            self.ref.owner.workspace.lower() == self.credentials.username.lower():
             return self.OWNER_URL
 
-        return self.ORG_URL.format(org=self.name.owner.workspace)
+        return self.ORG_URL.format(org=self.ref.owner.workspace)
 
     def create(self):
         url = self.auth(self.get_user_url())
@@ -663,7 +683,7 @@ class GithubRepo(Repo):
             data=json.dumps({'name': self.slug, 'private': True}))
 
         self.reply_check(result, [201], raises={
-            422: AlreadyExists(self.name)
+            422: AlreadyExists(self.ref)
         })
         real_name = result.json()['name']
         return real_name
