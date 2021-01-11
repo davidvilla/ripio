@@ -418,6 +418,9 @@ class Repo(Auth):
     def __repr__(self):
         return "<{} '{}'>".format(self.__class__.__name__, self.ref.global_name)
 
+    def __str__(self):
+        return str(self.ref)
+
     def info(self):
         data = dict(
             access=self.access,
@@ -563,8 +566,8 @@ class BitbucketRepo(Repo):
                 date    = c['date'],
                 message = c['message'])
 
-    def create(self):
-        result = requests.post(self.url, data={'is_private':True})
+    def create(self, private):
+        result = requests.post(self.url, data={'is_private':private})
         self.reply_check(result, raises={
             400: AlreadyExists(self.ref)
         })
@@ -674,13 +677,13 @@ class GithubRepo(Repo):
 
         return self.ORG_URL.format(org=self.ref.owner.workspace)
 
-    def create(self):
+    def create(self, private):
         url = self.auth(self.get_user_url())
         logging.debug(url)
 
         result = requests.post(
             url,
-            data=json.dumps({'name': self.slug, 'private': True}))
+            data=json.dumps({'name': self.slug, 'private': private}))
 
         self.reply_check(result, [201], raises={
             422: AlreadyExists(self.ref)

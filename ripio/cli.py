@@ -80,16 +80,16 @@ def cmd_repo_rename(config):
 
 def cmd_repo_create(config):
     repo = get_repo(config, guess=False)
-    name = repo.create()
-    print("- repository '{}' created".format(name))
+    repo.create(config.private)
+    print("- repository '{}' created".format(repo))
 
 
 def cmd_repo_delete(config):
     repo = get_repo(config)
     repo.check()
     utils.confirm_irrecoverable_operation()
-    print("- deleting '{}'".format(repo.full_name))
     repo.delete()
+    print("- repository '{}' deleted".format(repo))
 
 
 def cmd_repo_clone(config):
@@ -103,13 +103,11 @@ def cmd_repo_clone(config):
         local_clone = ripio.Repo.from_dir(destdir, config.credentials)
         if local_clone.ref == repo.ref:
             raise ripio.RepositoryAlreadyCloned(destdir)
-        else:
-            raise ripio.UnrelatedRepository(destdir, local_clone.ref)
 
-        # raise ripio.DirectoryAlreadyExists(destdir)
+        raise ripio.UnrelatedRepository(destdir, local_clone.ref)
 
     print("- cloning({}) '{}' to '{}'".format(
-        config.proto, repo.full_name, utils.pretty_path(destdir)))
+        config.proto, repo, utils.pretty_path(destdir)))
     repo.clone(destdir, config.proto)
 
 
@@ -216,6 +214,9 @@ Abbreviated names are allowed when suitable configuration is given.
 
     parser_create = cmds.add_parser('create', help='create new repository')
     parser_create.set_defaults(func=cmd_repo_create)
+    parser_create.add_argument('--public', dest='private', default=True,
+                               action='store_false',
+                               help='set public, default is private')
     parser_create.add_argument('repo', help=repo_help)
 
     parser_delete = cmds.add_parser('delete', help='delete a repository')
