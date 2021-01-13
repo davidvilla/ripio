@@ -97,7 +97,7 @@ class DirectoryAlreadyExists(error):
     reason = 'destination directory already EXISTS'
 
 class DirectoryIsNotRepository(error):
-    reason = 'destination directory exists but is NOT a repository'
+    reason = 'destination directory exists but is NOT a git repository'
 
 class WrongCompletion(error): pass
 
