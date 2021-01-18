@@ -27,6 +27,11 @@ sites = {
     GITHUB: 'github',
 }
 
+SITE_ABBREVS = {
+    'bitbucket': 'bitbucket',
+    'bb':        'bitbucket',
+    'github':    'github',
+    'gh':        'github'}
 
 CONFIG_USAGE = '''\
 Provide a config file with --config argument or its default location: '~/.config/ripio'.
@@ -119,6 +124,10 @@ class UnrelatedRepository(error):
         assert isinstance(repo_ref, RepoRef)
         self.value = str(destdir), str(repo_ref)
 
+class RateLimitExceeded(error):
+    reason = "Site rate limit exceeded. Too many requests!"
+
+
 class WorkspaceName:
     def __init__(self, full_workspace, site=None):
         if full_workspace.count(':') > 1 or '/' in full_workspace:
@@ -133,11 +142,9 @@ class WorkspaceName:
             self.site = site
             self.workspace = full_workspace
 
-        abbrevs = {'bb': 'bitbucket', 'gh': 'github'}
-        if self.site in abbrevs:
-            self.site = abbrevs[self.site]
-
-        if self.site not in ['bitbucket', 'github']:
+        try:
+            self.site = SITE_ABBREVS[self.site]
+        except KeyError:
             raise UnsupportedSite(self.site)
 
     def __repr__(self):
@@ -149,6 +156,9 @@ class WorkspaceName:
 
 class RepoRef:
     def __init__(self, site_full_name, site=None):
+        if site_full_name.startswith(('https://', 'git@')):
+            site_full_name = RepoRef.parse_origin(site_full_name)
+
         if site_full_name.count('/') != 1:
             raise BadRepositoryName(site_full_name)
 
@@ -163,14 +173,21 @@ class RepoRef:
         self.global_name = '{}:{}'.format(self.site, self.full_name)
 
     @classmethod
-    def from_origin(self, path):
-        if path.startswith('git@'):
-            fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', path)[0]
-            return RepoRef('{}:{}'.format(sites[fields[0]], fields[1]))
+    def parse_origin(cls, url):
+        if url.startswith('git@'):
+            fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', url)[0]
+            return '{}:{}'.format(sites[fields[0]], fields[1])
 
-        elif path.startswith('https://'):
-            fields = re.findall(r'\Ahttps?://([^/]+)/(.+).git\Z', path)[0]
-            return RepoRef('{}:{}'.format(sites[fields[0]], fields[1]))
+        elif url.startswith('https://'):
+            print(url)
+            fields = re.findall(r'\Ahttps?://([^/]+)/(.+)(?:\.git)?\Z', url)[0]
+            return '{}:{}'.format(sites[fields[0]], fields[1])
+
+        raise BadRepositoryName(url)
+
+    @classmethod
+    def from_origin(cls, url):
+        return RepoRef(cls.parse_origin(url))
 
     @classmethod
     def from_parts(cls, workspace, name, site=None):
@@ -217,7 +234,16 @@ class Completion:
         except BadRepositoryName:
             pass
 
-        for ws in self.workspaces:
+        workspaces = self.workspaces[:]
+
+        # for site:name names
+        if name.count(':') == 1:
+            print(name)
+            site, name = name.split(':')
+            workspaces = [ws for ws in workspaces if ws.site == SITE_ABBREVS[site]]
+            print(workspaces)
+
+        for ws in workspaces:
             try:
                 repo = ws.make_repo(name)
                 if repo.exists():
@@ -479,6 +505,9 @@ class Bitbucket:
 class Github:
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
+        raises = raises or {}
+        raises[403] = RateLimitExceeded(GITHUB)
+
         msg = api_check(reply, expected, raises)
         if msg is None:
             return
@@ -566,7 +595,7 @@ class BitbucketRepo(Repo):
                 date    = c['date'],
                 message = c['message'])
 
-    def create(self, private):
+    def create(self, private=True):
         result = requests.post(self.url, data={'is_private':private})
         self.reply_check(result, raises={
             400: AlreadyExists(self.ref)
@@ -677,7 +706,7 @@ class GithubRepo(Repo):
 
         return self.ORG_URL.format(org=self.ref.owner.workspace)
 
-    def create(self, private):
+    def create(self, private=True):
         url = self.auth(self.get_user_url())
         logging.debug(url)
 
@@ -731,6 +760,7 @@ class Workspace(Auth):
 
 
 class BitbucketWorkspace(Workspace):
+    site = 'bitbucket'
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{}?sort=slug'
 
     def __init__(self, name, credentials):
@@ -764,6 +794,7 @@ class BitbucketWorkspace(Workspace):
 
 
 class GithubWorkspace(Workspace):
+    site = 'github'
     ORG_URL   = 'https://api.github.com/orgs/{org}/repos'
     USER_URL  = 'https://api.github.com/users/{user}/repos'
     OWNER_URL = 'https://api.github.com/user/repos'

@@ -29,6 +29,7 @@ def get_repo(config, name=None, guess=True):
         if not guess:
             raise
 
+        # FIXME: refactor this handler
         print(f"- trying to complete '{name}' at known workspaces...")
         completion = ripio.Completion(name, config.config_file)
 
@@ -75,7 +76,7 @@ def cmd_repo_rename(config):
     repo = get_repo(config)
     new_name = repo.rename(config.new_name)
     print("- repository '{}' renamed as '{}/{}'".format(
-        repo.name.full_name, repo.name.owner.workspace, new_name))
+        repo.ref.full_name, repo.ref.owner.workspace, new_name))
 
 
 def cmd_repo_create(config):
@@ -97,7 +98,7 @@ def cmd_repo_clone(config):
     destdir = config.destdir / repo.slug
 
     if not repo.exists():
-        raise ripio.RepositoryNotFound(repo.name)
+        raise ripio.RepositoryNotFound(repo.ref)
 
     if Path(destdir).exists():
         local_clone = ripio.Repo.from_dir(destdir, config.credentials)
@@ -165,18 +166,24 @@ class BaseConfig(argparse.Namespace):
 
 
 def run():
-    repo_help = 'repo ref (site:owner/slug) or name'
+    repo_help = 'repo ref (site:owner/slug), url or name'
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
         description='''\
 Manage hosted git repositories.
-General repository reference format is: 'site:owner/name'.
-Examples:
-- 'github:twitter/wordpress' or 'gh:twitter/wordpress'
-- 'bitbucket:paypal/exmaple' or 'bb:paypal/exmaple'
 
-Abbreviated references (name only) are allowed when 'workspaces' are configured.
+General repository reference format is: 'site:owner/name', like:
+- 'github:twitter/wordpress' or 'gh:twitter/wordpress'
+- 'bitbucket:paypal/example' or 'bb:paypal/example'
+
+Abbreviated references are allowed (when 'workspaces' are configured):
+- 'example'
+- 'github:example' o 'gh:example'
+
+URLs are valid too:
+- 'https://github.com/twitter/wordpress'
+- 'git@github.com:twitter/wordpress.git'
 ''' + ripio.CONFIG_USAGE)
 
     parser.add_argument('--config', help='alternate config file',

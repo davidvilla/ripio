@@ -160,6 +160,12 @@ class GithubUser(TestCase):
     #     self.assertEquals(name, 'removable')
 
 
+class RepoRef(TestCase):
+    def test_full_ripio_ref(self):
+        sut = ripio.RepoRef('https://github.com/davidvilla/ripio')
+        self.assertEquals(sut.global_name, 'github:davidvilla/ripio')
+
+
 class Completion(TestCase):
     def setUp(self):
         with Stub() as self.config:
@@ -176,13 +182,38 @@ class Completion(TestCase):
         sut = ripio.Completion('repo0', self.config)
         self.assertEquals(sut.found, ['bitbucket:ripio-test/repo0'])
 
-    def test_two_matches(self):
+    def test_match_in_two_workspaces(self):
         with self.config:
             self.config.get_workspaces('bitbucket').returns(['DavidVilla', 'ripio-test'])
 
         sut = ripio.Completion('ripio', self.config)
         self.assertEquals(sut.found,
             ['bitbucket:DavidVilla/ripio', 'bitbucket:ripio-test/ripio'])
+
+    def test_match_in_two_sites(self):
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['ripio-test'])
+            self.config.get_workspaces('github').returns(['ripio-test'])
+
+        sut = ripio.Completion('ripio', self.config)
+        self.assertEquals(sut.found,
+            ['bitbucket:ripio-test/ripio', 'github:ripio-test/ripio'])
+
+    def test_disambiguate_with_site(self):
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['ripio-test'])
+            self.config.get_workspaces('github').returns(['ripio-test'])
+
+        sut = ripio.Completion('github:ripio', self.config)
+        self.assertEquals(sut.found, ['github:ripio-test/ripio'])
+
+    def test_disambiguate_with_abbreviated_site(self):
+        with self.config:
+            self.config.get_workspaces('bitbucket').returns(['ripio-test'])
+            self.config.get_workspaces('github').returns(['ripio-test'])
+
+        sut = ripio.Completion('gh:ripio', self.config)
+        self.assertEquals(sut.found, ['github:ripio-test/ripio'])
 
     def test_no_matches(self):
         with self.config:
@@ -249,8 +280,13 @@ class Bitbucket_URL(TestCase):
     def test_bitbucket_https(self):
         expected = ripio.RepoRef('bb:DavidVilla/ripio')
         result = ripio.RepoRef.from_origin(
-            'https://bitbucket.org/DavidVilla/ripio.git')
+            'https://bitbucket.org/DavidVilla/ripio')
         self.assertEquals(result, expected)
+
+    def test_wrong_url(self):
+        with self.assertRaises(ripio.BadRepositoryName):
+            ripio.RepoRef.from_origin(
+                'wrong://bitbucket.org/DavidVilla/ripio.git')
 
 
 class Github_URL(TestCase):
@@ -263,7 +299,7 @@ class Github_URL(TestCase):
     def test_github_https(self):
         expected = ripio.RepoRef('gh:davidvilla/python-doublex')
         result = ripio.RepoRef.from_origin(
-            'https://github.com/davidvilla/python-doublex.git')
+            'https://github.com/davidvilla/python-doublex')
         self.assertEquals(result, expected)
 
 
