@@ -113,13 +113,14 @@ class AccessDenied(error):
 class AlreadyExists(error): pass
 
 class MissingRemoteOrigin(error):
-    reason = "no remote 'origin' for repository"
+    reason = "missing remote 'origin' for repository"
 
 class RepositoryAlreadyCloned(error):
     reason = "repository already cloned"
 
 class UnrelatedRepository(error):
-    reason = "unrelated repository destination directory"
+    reason = "unrelated destination directory"
+
     def __init__(self, destdir, repo_ref):
         assert isinstance(repo_ref, RepoRef)
         self.value = str(destdir), str(repo_ref)

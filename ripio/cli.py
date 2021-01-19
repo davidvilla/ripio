@@ -87,6 +87,10 @@ def cmd_repo_create(config):
     repo.create(config.private)
     print("- repository '{}' created".format(repo))
 
+    if config.clone:
+        config.proto = 'ssh'  # FIXME: add to config file
+        _clone(config, repo)
+
 
 def cmd_repo_delete(config):
     repo = get_repo(config)
@@ -98,6 +102,10 @@ def cmd_repo_delete(config):
 
 def cmd_repo_clone(config):
     repo = get_repo(config)
+    _clone(config, repo)
+
+
+def _clone(config, repo):
     destdir = config.destdir / repo.slug
 
     if not repo.exists():
@@ -226,6 +234,8 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_create.add_argument('--public', dest='private', default=True,
                                action='store_false',
                                help='set public, default is private')
+    parser_create.add_argument('--clone', action='store_true',
+                               help='clone after create')
     parser_create.add_argument('repo', help=repo_help)
 
     parser_delete = cmds.add_parser('delete', help='delete a repository')
