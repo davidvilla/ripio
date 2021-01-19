@@ -449,13 +449,16 @@ class Repo(Auth):
 
     def info(self):
         data = dict(
+            webpage=self.webpage,
+            origin_https=self.clone_links['https'],
+            origin_ssh=self.clone_links['ssh'],
             access=self.access,
             size=utils.to_kB(self.size)
         )
 
         retval = ""
         for key, val in data.items():
-            retval += f"- {key+':':8} {val:>10}\n"
+            retval += f"- {key.replace('_', ' ')+':':14} {val}\n"
 
         return retval
 

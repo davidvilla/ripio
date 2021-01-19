@@ -48,12 +48,15 @@ def get_repo(config, name=None, guess=True):
 
 def cmd_ls_repos(config):
     ws_name = ripio.WorkspaceName(config.owner)
-    if ws_name.site == 'bitbucket':
-        ws = ripio.BitbucketWorkspace(ws_name, config.credentials.get('bitbucket'))
-    elif ws_name.site == 'github':
-        ws = ripio.GithubWorkspace(ws_name, config.credentials.get('github'))
-    else:
+    if ws_name.site not in ['bitbucket', 'github']:
         raise ripio.UnsupportedSite(ws_name.site)
+
+    credentials = config.credentials.get(ws_name.site)
+
+    if ws_name.site == 'bitbucket':
+        ws = ripio.BitbucketWorkspace(ws_name, credentials)
+    else:
+        ws = ripio.GithubWorkspace(ws_name, credentials)
 
     for i, repo in enumerate(ws.ls_repos()):
         print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
@@ -137,8 +140,7 @@ def cmd_site(config):
 
 
 def cmd_info(config):
-    repo = get_repo(config)
-    print(repo.info())
+    print(get_repo(config).info())
 
 
 def cmd_help(config):
