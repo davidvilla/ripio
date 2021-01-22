@@ -8,7 +8,6 @@ from urllib.parse import urlparse, urlunparse
 import re
 import logging
 
-import urllib
 import requests
 import requests.utils
 import git
@@ -363,12 +362,18 @@ class Auth:
         self.credentials = credentials
 
     def auth(self, url):
+        assert url.startswith('https')
+
         if self.credentials is None:
             return url
 
         parts = urlparse(url)
         user_pass = '{}:{}@'.format(self.credentials.username, self.credentials.password)
-        return urlunparse(parts._replace(netloc=user_pass + parts.netloc))
+        netloc = parts.netloc
+        if '@' in netloc:
+            netloc = netloc.split('@')[1]
+
+        return urlunparse(parts._replace(netloc=user_pass + netloc))
 
 
 def safe_url(url):
@@ -466,6 +471,26 @@ class Repo(Auth):
             retval += f"- {key.replace('_', ' ')+':':14} {val}\n"
 
         return retval
+
+    def clone(self, destdir, proto='ssh'):
+        def dash(*data):
+            print('-', end='', flush=True)
+
+        url = self.clone_links[proto]
+        if proto == 'https':
+            url = self.auth(url)
+
+        logging.debug(url)
+
+        try:
+            git.Repo.clone_from(url, destdir, progress=dash)
+        except git.exc.GitCommandError as e:
+            logging.error("cloning failed.")
+            if proto == 'https':
+                raise e
+
+            print("- retrying with 'https'...")
+            self.clone(destdir, proto='https')
 
 
 def api_check(reply, expected, raises):
@@ -631,15 +656,6 @@ class BitbucketRepo(Repo):
         real_name = result.headers['Location'].split('/')[-1]
         return real_name
 
-    def clone(self, destdir, proto='ssh'):
-        def dash(*data):
-            print('-', end='', flush=True)
-
-        url = self.clone_links[proto]
-        logging.debug(url)
-        git.Repo.clone_from(url, destdir, progress=dash)
-        print()
-
     @property
     @lru_cache()
     def permissions(self):
@@ -779,15 +795,6 @@ class GithubRepo(Repo):
         self.reply_check(result)
         real_name = result.json()['name'].split('/')[-1]
         return real_name
-
-    def clone(self, destdir, proto='ssh'):
-        def dash(*data):
-            print('-', end='', flush=True)
-
-        url = self.clone_links[proto]
-        logging.debug(url)
-        git.Repo.clone_from(url, destdir, progress=dash)
-        print()
 
 
 class Workspace(Auth):

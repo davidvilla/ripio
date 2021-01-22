@@ -13,6 +13,16 @@ with open('test/GITHUB_CREDENTIALS') as f:
     GITHUB_CREDENTIALS = f.read().strip()
 
 
+class AuthTests(TestCase):
+    def test_already_user(self):
+        url = 'https://john.doe@bitbucket.org/repo-test/repo11.git'
+        expected = 'https://john.doe:secret@bitbucket.org/repo-test/repo11.git'
+        credentials = ripio.Credentials('john.doe:secret')
+        sut = ripio.Auth(credentials)
+        result = sut.auth(url)
+        self.assertEquals(result, expected)
+
+
 class BitbucketWorkspace(TestCase):
     def setUp(self):
         self.credentials = ripio.Credentials(BITBUCKET_CREDENTIALS)

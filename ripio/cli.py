@@ -63,9 +63,9 @@ def cmd_ls_repos(config):
     else:
         ws = ripio.GithubWorkspace(ws_name, credentials)
 
+    fmt = "{0:>4}. {1:>12,} KB - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}"
     for i, repo in enumerate(ws.ls_repos()):
-        print("{0:>4}. {1:>12,} KB - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
-            i+1, repo.size, repo))
+        print(fmt.format(i+1, repo.size, repo))
 
 
 def cmd_print_head(config):
@@ -126,6 +126,7 @@ def _clone(config, repo):
     print("- cloning({}) '{}' to '{}'".format(
         config.proto, repo, utils.pretty_path(destdir)))
     repo.clone(destdir, config.proto)
+    print()
 
 
 def cmd_show_config(config):
