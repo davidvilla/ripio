@@ -4,12 +4,6 @@ from collections import namedtuple
 from pathlib import Path
 
 
-def to_kB(bytes):
-    "to kilobytes, not kibibytes"
-    k = float(bytes) / 1000
-    return "{:.0f} KB".format(k)
-
-
 def canceled():
     print('-- canceled')
     sys.exit(1)

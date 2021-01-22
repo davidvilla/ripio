@@ -8,7 +8,9 @@ from urllib.parse import urlparse, urlunparse
 import re
 import logging
 
+import urllib
 import requests
+import requests.utils
 import git
 import toml
 
@@ -384,7 +386,7 @@ def safe_url(url):
 
 class Repo(Auth):
     def check(self):
-        self.data
+        self.webpage
         return True
 
     def exists(self):
@@ -394,9 +396,7 @@ class Repo(Auth):
         except RepositoryNotFound:
             return False
 
-    @property
-    @lru_cache()
-    def data(self):
+    def _load_full_data(self):
         logging.debug(self.url)
 
         # FIXME: catch connection exceptions
@@ -404,16 +404,20 @@ class Repo(Auth):
         self.reply_check(result)
         retval = result.json()
         retval['access'] = self._get_access(retval)
+        retval['size'] = self._get_size(retval)
         return retval
 
+    @lru_cache()
     def __getattr__(self, attr):
-        assert attr in 'scm slug full_name size access'.split(), \
-            "Missing attribute '{}'".format(attr)
-
         try:
-            return self.basic_data[attr]
+            return self._data[attr]
         except KeyError:
-            return self.data[attr]
+            self._data.update(self._load_full_data())
+            try:
+                return self._data[attr]
+            except KeyError:
+                raise AttributeError(attr)
+
 
     @classmethod
     def from_dir(cls, dirname, credentials=None):
@@ -454,7 +458,7 @@ class Repo(Auth):
             origin_https=self.clone_links['https'],
             origin_ssh=self.clone_links['ssh'],
             access=self.access,
-            size=utils.to_kB(self.size)
+            size='{:,} KB'.format(self.size)
         )
 
         retval = ""
@@ -533,7 +537,7 @@ class BitbucketRepo(Repo):
         self.ref = RepoRef.cast(name, site='bitbucket')
 
         super().__init__(credentials)
-        self.basic_data = dict(
+        self._data = dict(
             full_name=self.ref.full_name,
             slug=self.ref.slug)
 
@@ -551,16 +555,22 @@ class BitbucketRepo(Repo):
     @classmethod
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
-        instance.basic_data = dict(
+        instance._data.update(dict(
             scm=data['scm'],
             slug=data['slug'],
             full_name=data['full_name'],
-            size=data['size'],
-            access='private' if data['is_private'] else 'public')
+            size=cls._get_size(data),
+            access=cls._get_access(data)
+        ))
         return instance
 
-    def _get_access(self, data):
+    @classmethod
+    def _get_access(cls, data):
         return 'private' if data['is_private'] else 'public'
+
+    @classmethod
+    def _get_size(cls, data):
+        return float(data['size']) / 1000
 
     @property
     @lru_cache()
@@ -577,14 +587,14 @@ class BitbucketRepo(Repo):
             }
         ]'''
         retval = {}
-        for link in self.data['links']['clone']:
+        for link in self.links['clone']:
             retval[link['name']] = link['href']
         return retval
 
     @property
     @lru_cache()
     def webpage(self):
-        return self.data['links']['html']['href']
+        return self.links['html']['href']
 
     def last_commits(self, max_=3):
         commits_url = self.url + '/commits'
@@ -630,6 +640,25 @@ class BitbucketRepo(Repo):
         git.Repo.clone_from(url, destdir, progress=dash)
         print()
 
+    @property
+    @lru_cache()
+    def permissions(self):
+        URL = 'https://api.bitbucket.org/2.0/user/permissions/repositories?q=repository.name="{}"'
+        url = self.auth(URL.format(self.ref.slug))
+        print(url)
+        result = requests.get(url)
+        print(self.ref)
+        self.reply_check(result)
+        result = result.json()
+
+        if len(result['values']) == 0:
+            return 'none'
+
+        print(len(result['values']), result['values'])
+
+        result = [r for r in result['values'] if r['repository']['full_name'] == self.ref.full_name][0]
+        return result['permission']
+
 
 class GithubRepo(Repo):
     BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
@@ -641,7 +670,7 @@ class GithubRepo(Repo):
         self.ref = RepoRef.cast(name, site='github')
 
         super().__init__(credentials)
-        self.basic_data = dict(
+        self._data = dict(
             full_name=self.ref.full_name,
             slug=self.ref.slug)
 
@@ -659,29 +688,35 @@ class GithubRepo(Repo):
     @classmethod
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
-        instance.basic_data = dict(
+        instance._data.update(dict(
             scm='git',
             slug=data['name'],
             full_name=data['full_name'],
-            size=data['size'],
-            access='private' if data['private'] else 'public')
+            size=cls._get_size(data),
+            access=cls._get_access(data)
+        ))
         return instance
 
+    @classmethod
     def _get_access(self, data):
         return 'private' if data['private'] else 'public'
+
+    @classmethod
+    def _get_size(cls, data):
+        return float(data['size'])
 
     @property
     @lru_cache()
     def clone_links(self):
         return dict(
-            ssh=self.data['ssh_url'],
-            https=self.data['clone_url']
+            ssh=self.ssh_url,
+            https=self.clone_url
         )
 
     @property
     @lru_cache()
     def webpage(self):
-        return self.data['html_url']
+        return self.html_url
 
     def last_commits(self, max_=3):
         # https://developer.github.com/v3/repos/commits/#list-commits

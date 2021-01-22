@@ -46,6 +46,11 @@ def get_repo(config, name=None, guess=True):
     return ripio.Repo.make(repo_ref, config.credentials)
 
 
+def cwd_repo(config):
+    root = ripio.utils.find_in_ancestors('.git', str(Path.cwd()))
+    return ripio.Repo.from_dir(root, config.credentials)
+
+
 def cmd_ls_repos(config):
     ws_name = ripio.WorkspaceName(config.owner)
     if ws_name.site not in ['bitbucket', 'github']:
@@ -59,8 +64,8 @@ def cmd_ls_repos(config):
         ws = ripio.GithubWorkspace(ws_name, credentials)
 
     for i, repo in enumerate(ws.ls_repos()):
-        print("{0:>4}. {1:>10} - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
-            i+1, utils.to_kB(repo.size), repo))
+        print("{0:>4}. {1:>12,} KB - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}".format(
+            i+1, repo.size, repo))
 
 
 def cmd_print_head(config):
@@ -140,15 +145,20 @@ def cmd_show_config(config):
 
 
 def cmd_site(config):
-    root = ripio.utils.find_in_ancestors('.git', str(Path.cwd()))
-    repo = ripio.Repo.from_dir(root, config.credentials)
+    repo = cwd_repo(config)
     url = repo.webpage
     print("- openning '{}'".format(url))
     webbrowser.open(url)
 
 
 def cmd_info(config):
-    print(get_repo(config).info())
+    if config.repo:
+        repo = get_repo(config)
+    else:
+        repo = cwd_repo(config)
+
+    print(repo.info())
+#    print(repo.permissions)
 
 
 def cmd_help(config):
@@ -259,7 +269,7 @@ Abbreviated names are allowed when suitable configuration is given.
 
     parser_info = cmds.add_parser('info', help='show repository info')
     parser_info.set_defaults(func=cmd_info)
-    parser_info.add_argument('repo', help=repo_help)
+    parser_info.add_argument('repo', nargs='?', help=repo_help)
 
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()
