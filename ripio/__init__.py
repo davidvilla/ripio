@@ -7,6 +7,7 @@ from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
 import re
 import logging
+import socket
 
 import requests
 import requests.utils
@@ -128,6 +129,16 @@ class UnrelatedRepository(error):
 
 class RateLimitExceeded(error):
     reason = "Site rate limit exceeded. Too many requests!"
+
+class NetworkError(error):
+    pass
+
+
+def http_get(*args, **kargs):
+    try:
+        return requests.get(*args, **kargs)
+    except requests.exceptions.ConnectionError as e:
+        raise NetworkError(e)
 
 
 class WorkspaceName:
@@ -405,7 +416,7 @@ class Repo(Auth):
         logging.debug(self.url)
 
         # FIXME: catch connection exceptions
-        result = requests.get(self.url)
+        result = http_get(self.url)
         self.reply_check(result)
         retval = result.json()
         retval['access'] = self._get_access(retval)
@@ -623,7 +634,7 @@ class BitbucketRepo(Repo):
 
     def last_commits(self, max_=3):
         commits_url = self.url + '/commits'
-        result = requests.get(commits_url)
+        result = http_get(commits_url)
         self.reply_check(result)
         commits = result.json()['values']
 
@@ -662,7 +673,7 @@ class BitbucketRepo(Repo):
         URL = 'https://api.bitbucket.org/2.0/user/permissions/repositories?q=repository.name="{}"'
         url = self.auth(URL.format(self.ref.slug))
         print(url)
-        result = requests.get(url)
+        result = http_get(url)
         print(self.ref)
         self.reply_check(result)
         result = result.json()
@@ -739,7 +750,7 @@ class GithubRepo(Repo):
         url = self.url + '/commits'
         logging.debug(url)
 
-        result = requests.get(url)
+        result = http_get(url)
         self.reply_check(result, [200, 409])
         if result.status_code == 409:
             return []
@@ -821,7 +832,7 @@ class BitbucketWorkspace(Workspace):
         next_link = self.url
         while next_link is not None:
             next_link = self.auth(next_link)
-            result = requests.get(next_link)
+            result = http_get(next_link)
             logging.debug(next_link)
             Bitbucket.api_check(result)
 
@@ -831,7 +842,7 @@ class BitbucketWorkspace(Workspace):
                 yield BitbucketRepo.from_data(repo, self.credentials)
 
     def check(self):
-        Bitbucket.api_check(requests.get(self.auth(self.url)))
+        Bitbucket.api_check(http_get(self.auth(self.url)))
 
     def make_repo(self, reponame):
         return BitbucketRepo(
@@ -852,7 +863,7 @@ class GithubWorkspace(Workspace):
 
         self.name = name
         self.url = self.ORG_URL.format(org=name.workspace)
-        result = requests.get(self.auth(self.url))
+        result = http_get(self.auth(self.url))
         if result.status_code == 404:
             logging.info("'{}' is not an organization. Trying as user.".format(
                 name.workspace))
@@ -875,7 +886,7 @@ class GithubWorkspace(Workspace):
         next_link = self.url
         while next_link is not None:
             next_link = self.auth(next_link)
-            result = requests.get(next_link)
+            result = http_get(next_link)
             logging.debug(next_link)
             Github.api_check(result)
 
@@ -886,7 +897,7 @@ class GithubWorkspace(Workspace):
                 yield GithubRepo.from_data(repo, self.credentials)
 
     def check(self):
-        Github.api_check(requests.get(self.auth(self.url)))
+        Github.api_check(http_get(self.auth(self.url)))
 
     def make_repo(self, reponame):
         return GithubRepo(
