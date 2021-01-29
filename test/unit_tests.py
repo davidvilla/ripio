@@ -1,5 +1,4 @@
 import time
-from argparse import Namespace
 from unittest import TestCase
 from pathlib import Path
 from doublex import Stub, ANY_ARG
@@ -171,9 +170,25 @@ class GithubUser(TestCase):
 
 
 class RepoRef(TestCase):
-    def test_full_ripio_ref(self):
+    def test_http(self):
         sut = ripio.RepoRef('https://github.com/davidvilla/ripio')
         self.assertEquals(sut.global_name, 'github:davidvilla/ripio')
+
+    def test_git(self):
+        ref = ripio.RepoRef('git@github.com:davidvilla/ripio.git')
+        self.assertEquals(str(ref), 'github:davidvilla/ripio')
+
+    def test_ssh(self):
+        ref = ripio.RepoRef('ssh://git@bitbucket.org/DavidVilla/prego3.git')
+        self.assertEquals(str(ref), 'bitbucket:DavidVilla/prego3')
+
+    def test_parse_origin_github_ssh(self):
+        ref = ripio.RepoRef.from_origin('git@github.com:davidvilla/ripio.git')
+        self.assertEquals(str(ref), 'github:davidvilla/ripio')
+
+    def test_parse_origin_bitbucket_ssh(self):
+        ref = ripio.RepoRef.from_origin('ssh://git@bitbucket.org/DavidVilla/prego3.git')
+        self.assertEquals(str(ref), 'bitbucket:DavidVilla/prego3')
 
 
 class Completion(TestCase):

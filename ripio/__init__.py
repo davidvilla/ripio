@@ -169,7 +169,7 @@ class WorkspaceName:
 
 class RepoRef:
     def __init__(self, site_full_name, site=None):
-        if site_full_name.startswith(('https://', 'git@')):
+        if site_full_name.startswith(('https://', 'git@', 'ssh://')):
             site_full_name = RepoRef.parse_origin(site_full_name)
 
         if site_full_name.count('/') != 1:
@@ -187,16 +187,20 @@ class RepoRef:
 
     @classmethod
     def parse_origin(cls, url):
-        if url.startswith('git@'):
+        if url.startswith('ssh://'):
+            fields = re.findall(r'\Assh://git@([^/]+)/(.+).git\Z', url)[0]
+
+        elif url.startswith('git@'):
             fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', url)[0]
-            return '{}:{}'.format(sites[fields[0]], fields[1])
 
         elif url.startswith('https://'):
-            print(url)
             fields = re.findall(r'\Ahttps?://([^/]+)/(.+)(?:\.git)?\Z', url)[0]
-            return '{}:{}'.format(sites[fields[0]], fields[1])
 
-        raise BadRepositoryName(url)
+        else:
+            raise BadRepositoryName(url)
+
+        return '{}:{}'.format(sites[fields[0]], fields[1])
+
 
     @classmethod
     def from_origin(cls, url):
@@ -434,11 +438,11 @@ class Repo(Auth):
             except KeyError:
                 raise AttributeError(attr)
 
-
     @classmethod
     def from_dir(cls, dirname, credentials=None):
         try:
             origin = git.Repo(dirname).remote().url
+            print(origin)
         except git.exc.InvalidGitRepositoryError:
             raise DirectoryIsNotRepository(dirname)
         except ValueError:
