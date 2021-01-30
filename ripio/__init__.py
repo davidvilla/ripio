@@ -201,7 +201,6 @@ class RepoRef:
 
         return '{}:{}'.format(sites[fields[0]], fields[1])
 
-
     @classmethod
     def from_origin(cls, url):
         return RepoRef(cls.parse_origin(url))
@@ -255,10 +254,8 @@ class Completion:
 
         # for site:name names
         if name.count(':') == 1:
-            print(name)
             site, name = name.split(':')
             workspaces = [ws for ws in workspaces if ws.site == SITE_ABBREVS[site]]
-            print(workspaces)
 
         for ws in workspaces:
             try:
@@ -442,7 +439,6 @@ class Repo(Auth):
     def from_dir(cls, dirname, credentials=None):
         try:
             origin = git.Repo(dirname).remote().url
-            print(origin)
         except git.exc.InvalidGitRepositoryError:
             raise DirectoryIsNotRepository(dirname)
         except ValueError:
@@ -803,9 +799,6 @@ class GithubRepo(Repo):
         result = requests.patch(
             self.url,
             data=json.dumps({'name': new_name}))
-
-        print(result.status_code)
-        print(result.json())
 
         self.reply_check(result)
         real_name = result.json()['name'].split('/')[-1]
