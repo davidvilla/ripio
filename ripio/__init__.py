@@ -260,7 +260,7 @@ class Completion:
         for ws in workspaces:
             try:
                 repo = ws.make_repo(name)
-                if repo.exists():
+                if repo.checked_exists():
                     self.found.append(repo.ref.global_name)
             except AccessDenied:
                 self.denied.append(repo.ref.global_name)
@@ -403,6 +403,7 @@ def safe_url(url):
 
 class Repo(Auth):
     def check(self):
+        "check access to server"
         self.webpage
         return True
 
@@ -412,6 +413,19 @@ class Repo(Auth):
             return True
         except RepositoryNotFound:
             return False
+
+    def checked_exists(self):
+        "Renamed repos keep old URLs, so must verify same slug"
+        try:
+            if not self.exists():
+                return False
+
+            self._load_full_data()
+            return self.slug == self.name
+        except RepositoryNotFound:
+            pass
+
+        return False
 
     def _load_full_data(self):
         logging.debug(self.url)

@@ -6,9 +6,12 @@ import argparse
 import logging
 from pathlib import Path
 import webbrowser
+import warnings
 
 import ripio
 import ripio.utils as utils
+
+warnings.filterwarnings('ignore')
 
 
 def set_verbosity(args):
