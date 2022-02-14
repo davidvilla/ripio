@@ -38,7 +38,7 @@ def get_repo(config, name=None, guess=True):
 
         if len(completion.found) == 1:
             repo_ref = ripio.RepoRef(completion.found[0])
-            print("- guessing '{}'".format(repo_ref))
+            print("- found '{}'".format(repo_ref))
 
         elif len(completion.found) > 1:
             print("- serveral completions found:")
