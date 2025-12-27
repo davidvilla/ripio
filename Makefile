@@ -12,7 +12,6 @@ pypi-release:
 
 push:
 	git push git@github.com:davidvilla/ripio.git
-	git push git@bitbucket.org:DavidVilla/ripio.git
 
 clean:
 	$(RM) -r build *.egg-info venv dist
