@@ -517,6 +517,10 @@ class Repo(Auth):
             print("- retrying with 'https'...")
             self.clone(destdir, proto='https')
 
+    def list_collaborators(self):
+        raise NotImplementedError
+
+
 
 def api_check(reply, expected, raises):
     expected = expected or [200]
@@ -700,6 +704,19 @@ class BitbucketRepo(Repo):
         result = [r for r in result['values'] if r['repository']['full_name'] == self.ref.full_name][0]
         return result['permission']
 
+    def list_collaborators(self):
+        retval = ''
+
+        url = self.url + '/collaborators'
+        result = http_get(url)
+        self.reply_check(result)
+        data = result.json()
+
+        for c in data.get('values', []):
+            retval += f"-- {c['user']['username']} ({c['role']}) \n"
+
+        return retval
+
 
 class GithubRepo(Repo):
     BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
@@ -817,6 +834,19 @@ class GithubRepo(Repo):
         self.reply_check(result)
         real_name = result.json()['name'].split('/')[-1]
         return real_name
+
+    def list_collaborators(self):
+        retval = ''
+
+        url = self.url + '/collaborators'
+        result = http_get(url)
+        self.reply_check(result)
+        data = result.json()
+
+        for c in data:
+            retval += f"-- {c['login']} ({c['role_name']}) \n"
+
+        return retval
 
 
 class Workspace(Auth):

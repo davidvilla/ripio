@@ -165,6 +165,11 @@ def cmd_info(config):
 #    print(repo.permissions)
 
 
+def cmd_ls_colab(config):
+    repo = get_repo(config)
+    print(repo.list_collaborators())
+
+
 def cmd_help(config):
     config.parser.print_help()
 
@@ -274,6 +279,10 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_info = cmds.add_parser('info', help='show repository info')
     parser_info.set_defaults(func=cmd_info)
     parser_info.add_argument('repo', nargs='?', help=repo_help)
+
+    parser_ls_colabs = cmds.add_parser('ls-colab', help='list collaborators')
+    parser_ls_colabs.set_defaults(func=cmd_ls_colab)
+    parser_ls_colabs.add_argument('repo', help=repo_help)
 
     config = parser.parse_args(namespace=BaseConfig())
     config.load_file()
