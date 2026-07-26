@@ -14,11 +14,15 @@ import ripio.utils as utils
 warnings.filterwarnings('ignore')
 
 
+VERBOSITY_LEVELS = [logging.ERROR, logging.INFO, logging.DEBUG]
+
+
 def set_verbosity(args):
-    level = logging.ERROR - 10 * min(args.verbosity, 3)
+    level = VERBOSITY_LEVELS[min(args.verbosity, len(VERBOSITY_LEVELS) - 1)]
     if level != logging.ERROR:
         print("Verbosity set to {}".format(logging.getLevelName(level)))
-        print("Try 'ripio -vvv' for even more detail")
+        if args.verbosity < len(VERBOSITY_LEVELS) - 1:
+            print("Try 'ripio -vv' for even more detail")
     logging.getLogger().setLevel(level)
 
 
