@@ -1,4 +1,5 @@
 import time
+import random
 from unittest import TestCase
 from pathlib import Path
 from doublex import Stub, ANY_ARG
@@ -19,7 +20,7 @@ class AuthTests(TestCase):
         credentials = ripio.Credentials('john.doe:secret')
         sut = ripio.Auth(credentials)
         result = sut.auth(url)
-        self.assertEquals(result, expected)
+        self.assertEqual(result, expected)
 
 
 class BitbucketWorkspace(TestCase):
@@ -51,7 +52,7 @@ class BitbucketWorkspace(TestCase):
 
         with self.assertRaises(ripio.RemoteError) as e:
             ws.check()
-            self.assertEquals('ripio-missing-work-space', str(e))
+            self.assertEqual('ripio-missing-work-space', str(e))
 
     def test_not_supported_site(self):
         with self.assertRaises(ripio.UnsupportedSite):
@@ -92,25 +93,42 @@ class GithubWorkspace(BitbucketWorkspace):
 
 class BitbucketRepo(TestCase):
     def setUp(self):
+        # a fresh name per test, so create()/rename() never touch a name
+        # that was just deleted while the remote site still enforces its
+        # name-reuse cooldown
+        suffix = random.randint(100000, 999999)
+        self.removable_name = 'removable-{}'.format(suffix)
+        self.to_delete_name = 'to-delete-{}'.format(suffix)
         self.remove_fixtures()
 
-    @classmethod
-    def make_repo(cls, name, auth=True):
+    def tearDown(self):
+        # random names are never reused, so nothing else will ever clean these up
+        self.remove_fixtures()
+
+    def make_repo(self, name, auth=True):
         creds = ripio.Credentials(BITBUCKET_CREDENTIALS) if auth else None
-        print(creds)
         return ripio.BitbucketRepo(name, creds)
 
-    @classmethod
-    def remove_fixtures(cls):
+    def remove_fixtures(self):
+        # best-effort cleanup: a repo just renamed away from one of these
+        # names can make the remote site report a transient conflict here
+        # instead of a clean "not found" for the old name, so retry a couple
+        # of times before giving up on that name
         i = 0
-        for r in ['removable', 'to-delete']:
+        attempts = 6
+        for r in [self.removable_name, self.to_delete_name]:
             name = ripio.RepoRef('bb:ripio-test/' + r)
-            print(name, type(name), isinstance(name, ripio.RepoRef))
-            try:
-                cls.make_repo(name).delete()
-                i += 1
-            except ripio.RepositoryNotFound:
-                pass
+            for attempt in range(attempts):
+                try:
+                    self.make_repo(name).delete()
+                    i += 1
+                    break
+                except ripio.RepositoryNotFound:
+                    break
+                except ripio.error:
+                    if attempt == attempts - 1:
+                        break
+                    time.sleep(2)
 
         if i:
             time.sleep(1)
@@ -123,18 +141,18 @@ class BitbucketRepo(TestCase):
     def test_head_empty_repo(self):
         repo = self.make_repo('ripio-test/empty')
         result = list(repo.last_commits())
-        self.assertEquals(result, [])
+        self.assertEqual(result, [])
 
     def test_create(self):
-        repo = self.make_repo('ripio-test/removable')
+        repo = self.make_repo('ripio-test/' + self.removable_name)
         name = repo.create()
-        self.assertEquals(name, 'removable')
+        self.assertEqual(name, self.removable_name)
 
     def test_create_rename(self):
-        repo = self.make_repo('ripio-test/removable')
+        repo = self.make_repo('ripio-test/' + self.removable_name)
         repo.create()
-        name = repo.rename('to-delete')
-        self.assertEquals(name, 'to-delete')
+        name = repo.rename(self.to_delete_name)
+        self.assertEqual(name, self.to_delete_name)
 
     def test_delete_missing(self):
         repo = self.make_repo('ripio-test/missing')
@@ -143,13 +161,17 @@ class BitbucketRepo(TestCase):
 
 
 class GithubRepo(BitbucketRepo):
-    def setUp(self):
-        self.remove_fixtures()
-
-    @classmethod
-    def make_repo(cls, name, auth=True):
+    def make_repo(self, name, auth=True):
         creds = ripio.Credentials(GITHUB_CREDENTIALS) if auth else None
         return ripio.GithubRepo(name, creds)
+
+    def test_create_rename(self):
+        # Github needs some time after creation before it allows a rename
+        repo = self.make_repo('ripio-test/' + self.removable_name)
+        repo.create()
+        time.sleep(3)
+        name = repo.rename(self.to_delete_name)
+        self.assertEqual(name, self.to_delete_name)
 
 
 class GithubUser(TestCase):
@@ -166,29 +188,46 @@ class GithubUser(TestCase):
     # def test_create_user_repo(self):
     #     repo = self.make_repo('davidvilla/removable')
     #     name = repo.create()
-    #     self.assertEquals(name, 'removable')
+    #     self.assertEqual(name, 'removable')
 
 
 class RepoRef(TestCase):
     def test_http(self):
         sut = ripio.RepoRef('https://github.com/davidvilla/ripio')
-        self.assertEquals(sut.global_name, 'github:davidvilla/ripio')
+        self.assertEqual(sut.global_name, 'github:davidvilla/ripio')
 
     def test_git(self):
         ref = ripio.RepoRef('git@github.com:davidvilla/ripio.git')
-        self.assertEquals(str(ref), 'github:davidvilla/ripio')
+        self.assertEqual(str(ref), 'github:davidvilla/ripio')
 
     def test_ssh(self):
         ref = ripio.RepoRef('ssh://git@bitbucket.org/DavidVilla/prego3.git')
-        self.assertEquals(str(ref), 'bitbucket:DavidVilla/prego3')
+        self.assertEqual(str(ref), 'bitbucket:DavidVilla/prego3')
 
     def test_parse_origin_github_ssh(self):
         ref = ripio.RepoRef.from_origin('git@github.com:davidvilla/ripio.git')
-        self.assertEquals(str(ref), 'github:davidvilla/ripio')
+        self.assertEqual(str(ref), 'github:davidvilla/ripio')
 
     def test_parse_origin_bitbucket_ssh(self):
         ref = ripio.RepoRef.from_origin('ssh://git@bitbucket.org/DavidVilla/prego3.git')
-        self.assertEquals(str(ref), 'bitbucket:DavidVilla/prego3')
+        self.assertEqual(str(ref), 'bitbucket:DavidVilla/prego3')
+
+    def test_colon_form(self):
+        ref = ripio.RepoRef('github:davidvilla/ripio')
+        self.assertEqual(str(ref), 'github:davidvilla/ripio')
+
+    def test_slash_form(self):
+        ref = ripio.RepoRef('github/davidvilla/ripio')
+        self.assertEqual(str(ref), 'github:davidvilla/ripio')
+
+    def test_slash_form_abbreviated_site(self):
+        ref = ripio.RepoRef('gh/davidvilla/ripio')
+        self.assertEqual(str(ref), 'github:davidvilla/ripio')
+
+    def test_slash_form_equals_colon_form(self):
+        self.assertEqual(
+            ripio.RepoRef('bitbucket/DavidVilla/prego3'),
+            ripio.RepoRef('bitbucket:DavidVilla/prego3'))
 
 
 class Completion(TestCase):
@@ -205,14 +244,14 @@ class Completion(TestCase):
             self.config.get_workspaces('bitbucket').returns(['DavidVilla', 'ripio-test'])
 
         sut = ripio.Completion('repo0', self.config)
-        self.assertEquals(sut.found, ['bitbucket:ripio-test/repo0'])
+        self.assertEqual(sut.found, ['bitbucket:ripio-test/repo0'])
 
     def test_match_in_two_workspaces(self):
         with self.config:
             self.config.get_workspaces('bitbucket').returns(['DavidVilla', 'ripio-test'])
 
         sut = ripio.Completion('ripio', self.config)
-        self.assertEquals(sut.found,
+        self.assertEqual(sut.found,
             ['bitbucket:DavidVilla/ripio', 'bitbucket:ripio-test/ripio'])
 
     def test_match_in_two_sites(self):
@@ -221,7 +260,7 @@ class Completion(TestCase):
             self.config.get_workspaces('github').returns(['ripio-test'])
 
         sut = ripio.Completion('ripio', self.config)
-        self.assertEquals(sut.found,
+        self.assertEqual(sut.found,
             ['bitbucket:ripio-test/ripio', 'github:ripio-test/ripio'])
 
     def test_disambiguate_with_site(self):
@@ -230,7 +269,7 @@ class Completion(TestCase):
             self.config.get_workspaces('github').returns(['ripio-test'])
 
         sut = ripio.Completion('github:ripio', self.config)
-        self.assertEquals(sut.found, ['github:ripio-test/ripio'])
+        self.assertEqual(sut.found, ['github:ripio-test/ripio'])
 
     def test_disambiguate_with_abbreviated_site(self):
         with self.config:
@@ -238,7 +277,7 @@ class Completion(TestCase):
             self.config.get_workspaces('github').returns(['ripio-test'])
 
         sut = ripio.Completion('gh:ripio', self.config)
-        self.assertEquals(sut.found, ['github:ripio-test/ripio'])
+        self.assertEqual(sut.found, ['github:ripio-test/ripio'])
 
     def test_no_matches(self):
         with self.config:
@@ -248,12 +287,15 @@ class Completion(TestCase):
             ripio.Completion('missing', self.config)
 
     def test_bitbucket_private_repo_without_credentials(self):
+        # Bitbucket returns 404 (not 403) for private repos when unauthenticated,
+        # so it is indistinguishable from a missing repo.
         with self.config:
             self.config.get_workspaces('bitbucket').returns(['ripio-test'])
 
-        sut = ripio.Completion('private', self.config)
-        self.assertEquals(sut.found, [])
-        self.assertEquals(sut.denied, ['bitbucket:ripio-test/private'])
+        with self.assertRaises(ripio.WrongCompletion):
+            sut = ripio.Completion('private', self.config)
+            self.assertEqual(sut.found, [])
+            self.assertEqual(sut.denied, [])
 
     def test_github_private_repo_without_credentials(self):
         with self.config as c:
@@ -261,16 +303,20 @@ class Completion(TestCase):
 
         with self.assertRaises(ripio.WrongCompletion):
             sut = ripio.Completion('private', self.config)
-            self.assertEquals(sut.found, [])
-            self.assertEquals(sut.denied, ['github:ripio-test/private'])
+            self.assertEqual(sut.found, [])
+            self.assertEqual(sut.denied, ['github:ripio-test/private'])
 
     def test_public_repo_and_default_bitbucket_workspace(self):
+        # Bitbucket app passwords authenticate with an email as username, which
+        # no longer matches the account's workspace slug, so the workspace must
+        # be given explicitly instead of guessed from the credentials' username.
         with self.config:
             self.config.get_credentials('bitbucket').returns(
                 ripio.Credentials(BITBUCKET_CREDENTIALS))
+            self.config.get_workspaces('bitbucket').returns(['DavidVilla'])
 
         sut = ripio.Completion('ripio', self.config)
-        self.assertEquals(sut.found, ['bitbucket:DavidVilla/ripio'])
+        self.assertEqual(sut.found, ['bitbucket:DavidVilla/ripio'])
 
 
 class EmptyConfigFile(TestCase):
@@ -279,20 +325,20 @@ class EmptyConfigFile(TestCase):
     #     self.assert_(sut.is_valid())
     def test_destdir(self):
         sut = ripio.ConfigFile()
-        self.assertEquals(sut.destdir, Path.cwd())
+        self.assertEqual(sut.destdir, Path.cwd())
 
 
 class ConfigFile(TestCase):
     def test_bitbucket_credentials(self):
         sut = ripio.ConfigFile('test/fixtures/bitbucket.conf')
         result = sut.get_credentials('bitbucket')
-        self.assertEquals(result, ripio.Credentials('john.doe:secret'))
+        self.assertEqual(result, ripio.Credentials('john.doe:secret'))
 
     def test_username_included_as_workspace_by_default(self):
         sut = ripio.ConfigFile('test/fixtures/bitbucket.conf')
         result = sut.bitbucket.workspaces
         expected = set(['ripio-test', 'DavidVilla'])
-        self.assertEquals(set(result), expected)
+        self.assertEqual(set(result), expected)
 
 
 class Bitbucket_URL(TestCase):
@@ -300,13 +346,13 @@ class Bitbucket_URL(TestCase):
         expected = ripio.RepoRef('bb:DavidVilla/ripio')
         result = ripio.RepoRef.from_origin(
             'git@bitbucket.org:DavidVilla/ripio.git')
-        self.assertEquals(result, expected)
+        self.assertEqual(result, expected)
 
     def test_bitbucket_https(self):
         expected = ripio.RepoRef('bb:DavidVilla/ripio')
         result = ripio.RepoRef.from_origin(
             'https://bitbucket.org/DavidVilla/ripio')
-        self.assertEquals(result, expected)
+        self.assertEqual(result, expected)
 
     def test_wrong_url(self):
         with self.assertRaises(ripio.BadRepositoryName):
@@ -319,13 +365,13 @@ class Github_URL(TestCase):
         expected = ripio.RepoRef('gh:davidvilla/python-doublex')
         result = ripio.RepoRef.from_origin(
             'git@github.com:davidvilla/python-doublex.git')
-        self.assertEquals(result, expected)
+        self.assertEqual(result, expected)
 
     def test_github_https(self):
         expected = ripio.RepoRef('gh:davidvilla/python-doublex')
         result = ripio.RepoRef.from_origin(
             'https://github.com/davidvilla/python-doublex')
-        self.assertEquals(result, expected)
+        self.assertEqual(result, expected)
 
 
 # FIXME: test "cmd: ripio site"

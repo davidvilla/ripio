@@ -2,6 +2,8 @@
 
 import sys
 import json
+import time
+import difflib
 from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
@@ -106,7 +108,17 @@ class DirectoryAlreadyExists(error):
 class DirectoryIsNotRepository(error):
     reason = 'destination directory exists but is NOT a git repository'
 
-class WrongCompletion(error): pass
+class WrongCompletion(error):
+    def __init__(self, name, suggestions=None):
+        self.value = name
+        self.suggestions = suggestions or []
+
+    def __str__(self):
+        msg = super().__str__()
+        for s in self.suggestions:
+            msg += self.detail("did you mean '{}'?".format(s))
+
+        return msg
 
 class AccessDenied(error):
     def __init__(self, arg):
@@ -130,8 +142,32 @@ class UnrelatedRepository(error):
 class RateLimitExceeded(error):
     reason = "Site rate limit exceeded. Too many requests!"
 
+    def __init__(self, site, wait=None):
+        self.value = site
+        self.wait = wait
+
+    def __str__(self):
+        msg = super().__str__()
+        if self.wait is not None:
+            msg += self.detail("available again in {}".format(format_duration(self.wait)))
+
+        return msg
+
 class NetworkError(error):
     pass
+
+
+def format_duration(seconds):
+    seconds = max(0, int(seconds))
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    if hours:
+        return "{}h {}m".format(hours, minutes)
+    if minutes:
+        return "{}m {}s".format(minutes, seconds)
+
+    return "{}s".format(seconds)
 
 
 def http_get(*args, **kargs):
@@ -171,6 +207,9 @@ class RepoRef:
     def __init__(self, site_full_name, site=None):
         if site_full_name.startswith(('https://', 'git@', 'ssh://')):
             site_full_name = RepoRef.parse_origin(site_full_name)
+
+        if ':' not in site_full_name and site_full_name.count('/') == 2:
+            site_full_name = site_full_name.replace('/', ':', 1)
 
         if site_full_name.count('/') != 1:
             raise BadRepositoryName(site_full_name)
@@ -231,6 +270,7 @@ class Completion:
     def __init__(self, name, config):
         self.found = []
         self.denied = []
+        self.names_cache = {}
         self.workspaces = self.list_workspaces(config)
 
         if not self.workspaces:
@@ -241,7 +281,7 @@ class Completion:
         if not self.found and not self.denied:
             workspaces = str.join('\n', [" - {}".format(x) for x in self.workspaces])
             logging.error("No guess found for any known workspace:\n{}".format(workspaces))
-            raise WrongCompletion(name)
+            raise WrongCompletion(name, self.suggest(name))
 
     def complete(self, name, config):
         try:
@@ -264,6 +304,29 @@ class Completion:
                     self.found.append(repo.ref.global_name)
             except AccessDenied:
                 self.denied.append(repo.ref.global_name)
+
+    def list_names(self, ws):
+        "List repo names of a workspace, caching the result for reuse"
+        if ws not in self.names_cache:
+            try:
+                self.names_cache[ws] = [repo.ref.global_name for repo in ws.ls_repos()]
+            except error:
+                self.names_cache[ws] = []
+
+        return self.names_cache[ws]
+
+    def suggest(self, name, n=3, cutoff=0.6):
+        "Suggest repo names similar to 'name' among all known workspaces"
+        search = name.split(':')[-1] if name.count(':') == 1 else name
+
+        slug_names = {}
+        for ws in self.workspaces:
+            for global_name in self.list_names(ws):
+                slug = global_name.rsplit('/', 1)[-1]
+                slug_names.setdefault(slug, []).append(global_name)
+
+        matches = difflib.get_close_matches(search, slug_names.keys(), n=n, cutoff=cutoff)
+        return [global_name for slug in matches for global_name in slug_names[slug]]
 
     @classmethod
     def list_workspaces(cls, config):
@@ -544,6 +607,9 @@ def api_check(reply, expected, raises):
 class Bitbucket:
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
+        raises = raises or {}
+        raises[429] = RateLimitExceeded(BITBUCKET, cls._wait(reply))
+
         msg = api_check(reply, expected, raises)
         if msg is None:
             return
@@ -563,12 +629,26 @@ class Bitbucket:
 
         raise RemoteError(msg)
 
+    @staticmethod
+    def _wait(reply):
+        "Seconds until the site's rate limit window resets, if known"
+        retry_after = reply.headers.get('Retry-After')
+        if retry_after is not None:
+            return float(retry_after)
+
+        # Bitbucket reports the reset directly as seconds remaining
+        reset = reply.headers.get('X-Ratelimit-Reset')
+        if reset is not None:
+            return float(reset)
+
+        return None
+
 
 class Github:
     @classmethod
     def api_check(cls, reply, expected=None, raises=None):
         raises = raises or {}
-        raises[403] = RateLimitExceeded(GITHUB)
+        raises[403] = RateLimitExceeded(GITHUB, cls._wait(reply))
 
         msg = api_check(reply, expected, raises)
         if msg is None:
@@ -582,6 +662,20 @@ class Github:
             msg += '\n' + reply_json['errors'][0]['message']
 
         raise RemoteError(msg)
+
+    @staticmethod
+    def _wait(reply):
+        "Seconds until the site's rate limit window resets, if known"
+        retry_after = reply.headers.get('Retry-After')
+        if retry_after is not None:
+            return float(retry_after)
+
+        # Github reports the reset as an absolute unix timestamp
+        reset = reply.headers.get('X-RateLimit-Reset')
+        if reset is not None:
+            return max(0, float(reset) - time.time())
+
+        return None
 
 
 class BitbucketRepo(Repo):
