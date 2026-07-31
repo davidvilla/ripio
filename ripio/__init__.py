@@ -114,9 +114,9 @@ class WrongCompletion(error):
         self.suggestions = suggestions or []
 
     def __str__(self):
-        msg = super().__str__()
+        msg = "No exact match found. Looking for approximate matches:"
         for s in self.suggestions:
-            msg += self.detail("did you mean '{}'?".format(s))
+            msg += self.detail(s)
 
         return msg
 
@@ -279,8 +279,6 @@ class Completion:
         self.complete(name, config)
 
         if not self.found and not self.denied:
-            workspaces = str.join('\n', [" - {}".format(x) for x in self.workspaces])
-            logging.error("No guess found for any known workspace:\n{}".format(workspaces))
             raise WrongCompletion(name, self.suggest(name))
 
     def complete(self, name, config):
@@ -298,6 +296,7 @@ class Completion:
             workspaces = [ws for ws in workspaces if ws.site == SITE_ABBREVS[site]]
 
         for ws in workspaces:
+            logging.info("- trying workspace '{}'".format(ws))
             try:
                 repo = ws.make_repo(name)
                 if repo.checked_exists():
@@ -524,6 +523,26 @@ class Repo(Auth):
         logging.debug(origin)
         repo_ref = RepoRef.from_origin(origin)
         return cls.make(repo_ref, credentials)
+
+    @classmethod
+    def find_local_clones(cls, root_dir, slug, credentials=None):
+        "Search root_dir's direct subdirectories for git repos matching slug"
+        root_dir = Path(root_dir)
+        if not root_dir.is_dir():
+            return
+
+        for entry in root_dir.iterdir():
+            if not entry.is_dir():
+                continue
+
+            try:
+                local_repo = cls.from_dir(entry, credentials)
+            except Exception as e:
+                logging.debug("- skipping '{}': {}".format(entry, e))
+                continue
+
+            if local_repo.ref.slug == slug:
+                yield entry, local_repo.ref
 
     @classmethod
     def make(cls, repo_ref, credentials):

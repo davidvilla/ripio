@@ -123,6 +123,13 @@ def _clone(config, repo):
     if not repo.exists():
         raise ripio.RepositoryNotFound(repo.ref)
 
+    for local_dir, local_ref in ripio.Repo.find_local_clones(
+            config.destdir, repo.slug, config.credentials):
+        if local_dir == destdir:
+            continue
+        print("- warning: '{}' is already cloned at '{}'".format(
+            local_ref.global_name, utils.pretty_path(local_dir)))
+
     if Path(destdir).exists():
         local_clone = ripio.Repo.from_dir(destdir, config.credentials)
         if local_clone.ref == repo.ref:
