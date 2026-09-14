@@ -295,14 +295,17 @@ class Completion:
             site, name = name.split(':')
             workspaces = [ws for ws in workspaces if ws.site == SITE_ABBREVS[site]]
 
+        found = {}
         for ws in workspaces:
             logging.info("- trying workspace '{}'".format(ws))
             try:
                 repo = ws.make_repo(name)
                 if repo.checked_exists():
-                    self.found.append(repo.ref.global_name)
+                    found[(repo.ref.site, repo.uid)] = repo.canonical_name
             except AccessDenied:
                 self.denied.append(repo.ref.global_name)
+
+        self.found = list(found.values())
 
     def list_names(self, ws):
         "List repo names of a workspace, caching the result for reuse"
@@ -464,6 +467,18 @@ def safe_url(url):
 
 
 class Repo(Auth):
+    UID_FIELD = None
+
+    @property
+    def uid(self):
+        "Site-given unique id of the underlying repository, stable across renames/transfers"
+        return getattr(self, self.UID_FIELD)
+
+    @property
+    def canonical_name(self):
+        full_name = self._data.get('full_name', self.ref.full_name)
+        return '{}:{}'.format(self.ref.site, full_name)
+
     def check(self):
         "check access to server"
         self.webpage
@@ -699,6 +714,7 @@ class Github:
 
 class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
+    UID_FIELD = 'uuid'
 
     def __init__(self, name, credentials=None):
         self.ref = RepoRef.cast(name, site='bitbucket')
@@ -835,6 +851,7 @@ class GithubRepo(Repo):
     BASE_URL = 'https://api.github.com/repos/{owner}/{repo}'
     ORG_URL  = 'https://api.github.com/orgs/{org}/repos'
     OWNER_URL = 'https://api.github.com/user/repos'
+    UID_FIELD = 'id'
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):

@@ -319,6 +319,65 @@ class Completion(TestCase):
         self.assertEqual(sut.found, ['bitbucket:DavidVilla/ripio'])
 
 
+class FakeRef:
+    def __init__(self, global_name):
+        self.site, _ = global_name.split(':')
+        self.global_name = global_name
+
+
+class FakeRepo:
+    def __init__(self, global_name, uid, canonical_name):
+        self.ref = FakeRef(global_name)
+        self.uid = uid
+        self.canonical_name = canonical_name
+
+    def checked_exists(self):
+        return True
+
+
+class FakeWorkspace:
+    def __init__(self, site, repo):
+        self.site = site
+        self._repo = repo
+
+    def make_repo(self, name):
+        return self._repo
+
+
+class CompletionDedup(TestCase):
+    # a repo renamed or transferred to another owner on GitHub/Bitbucket keeps
+    # answering on its old URL, so a bare-name guess can match it under both
+    # the stale and the current owner/slug; Completion must collapse those
+    # into a single, current entry instead of reporting a false ambiguity.
+    def make_completion(self, workspaces):
+        sut = ripio.Completion.__new__(ripio.Completion)
+        sut.found = []
+        sut.denied = []
+        sut.workspaces = workspaces
+        sut.complete('myrepo', config=None)
+        return sut
+
+    def test_renamed_or_transferred_repo_is_listed_once_under_its_current_name(self):
+        stale = FakeRepo('github:oldorg/myrepo', uid=42, canonical_name='github:neworg/myrepo')
+        current = FakeRepo('github:neworg/myrepo', uid=42, canonical_name='github:neworg/myrepo')
+
+        sut = self.make_completion([
+            FakeWorkspace('github', stale),
+            FakeWorkspace('github', current)])
+
+        self.assertEqual(sut.found, ['github:neworg/myrepo'])
+
+    def test_different_repos_sharing_a_slug_are_not_merged(self):
+        a = FakeRepo('github:orgA/myrepo', uid=1, canonical_name='github:orgA/myrepo')
+        b = FakeRepo('github:orgB/myrepo', uid=2, canonical_name='github:orgB/myrepo')
+
+        sut = self.make_completion([
+            FakeWorkspace('github', a),
+            FakeWorkspace('github', b)])
+
+        self.assertEqual(sut.found, ['github:orgA/myrepo', 'github:orgB/myrepo'])
+
+
 class EmptyConfigFile(TestCase):
     # def test_empty(self):
     #     sut = ripio.ConfigFile('test/fixtures/empty.conf')
