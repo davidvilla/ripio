@@ -3,8 +3,8 @@ Section: utils
 Priority: optional
 Maintainer: David Villa Alises <David.Villa@gmail.com>
 Homepage: https://bitbucket.org/DavidVilla/ripio
-Build-Depends: debhelper (>= 11), python3, python3-setuptools, dh-python, python3-git
-Standards-Version: 4.5.0
+Build-Depends: debhelper-compat (= 13), python3, python3-setuptools, dh-python, python3-git, python3-docutils
+Standards-Version: 4.7.2
 
 Package: ripio
 Architecture: all

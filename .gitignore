@@ -15,3 +15,4 @@ debian/ripio
 debian/debhelper-build-stamp
 debian/ripio.debhelper.log
 debian/ripio.substvars
+debian/ripio.1

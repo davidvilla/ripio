@@ -1,3 +1,17 @@
+ripio (0.20260914-2) unstable; urgency=low
+
+  * Fix lintian findings: bump Standards-Version to 4.7.2, migrate to
+    debhelper-compat (= 13), add machine-readable DEP-5 copyright, and
+    ship a manpage generated from ripio.rst.
+
+ -- David Villa Alises <David.Villa@gmail.com>  Mon, 14 Sep 2026 12:10:46 +0200
+
+ripio (0.20260914-1) unstable; urgency=low
+
+  * New release
+
+ -- David Villa Alises <David.Villa@gmail.com>  Mon, 14 Sep 2026 12:05:20 +0200
+
 ripio (0.20211110-1) unstable; urgency=low
 
   * New release
@@ -111,4 +125,3 @@ ripio (0.20200501-1) unstable; urgency=low
   * Initial release
 
  -- David Villa Alises <David.Villa@gmail.com>  Fri, 01 May 2020 21:16:30 +0200
-
