@@ -1,9 +1,12 @@
 #!/usr/bin/make -f
 # -*- mode:makefile -*-
 
-.PHONY: test
+.PHONY: test test-offline
 test:
-	nosetests3 test
+	python3 -m pytest
+
+test-offline:
+	python3 -m pytest -m "not network"
 
 pypi-release:
 	$(RM) -r dist

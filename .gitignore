@@ -4,8 +4,7 @@ dist
 ripio.egg-info
 repo.conf
 test/*_CREDENTIALS
-.noseids
-nosetests.xml
+.pytest_cache
 .vscode/*
 .pybuild
 build
