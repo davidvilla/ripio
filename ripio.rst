@@ -67,7 +67,21 @@ delete REPO
 clone [--http] [--destdir DIR] REPO
     Clone a repository. Uses SSH by default; ``--http`` uses HTTPS
     instead. ``--destdir`` sets the destination directory (default:
-    current directory).
+    ``[clone] destdir`` in the config file, or the current directory).
+
+local status [--destdir DIR] [-m] [-u] [-t]
+    List the git repositories at the clone directory (``[clone] destdir``
+    in the config file, unless ``--destdir`` is given), their last
+    modification date and their pending work: ``M`` marks changes in
+    tracked files, ``?`` untracked files and ``+N`` N commits not pushed to
+    any remote (local branches and detached HEAD). ``-m`` (``--modified``)
+    lists only repositories with changes in tracked files, ``-u``
+    (``--unpushed``) only those with unpushed commits; given both,
+    repositories matching either are listed. ``-t`` (``--by-date``) sorts
+    by last modification, newest first: the newest of the last commit in
+    local branches (or detached HEAD) and the files with local changes.
+    There is no network access: remote branches are the ones known since
+    the last fetch.
 
 ls-colab REPO
     List a repository's collaborators.

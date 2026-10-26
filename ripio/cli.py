@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 import webbrowser
 import warnings
+from datetime import datetime
 
 import ripio
 import ripio.utils as utils
@@ -143,6 +144,27 @@ def _clone(config, repo):
     print()
 
 
+def cmd_local_status(config):
+    print("- local clones at '{}'".format(utils.pretty_path(config.destdir)))
+    repos = ripio.LocalRepo.find(config.destdir)
+
+    if config.modified or config.unpushed:
+        repos = [r for r in repos
+                 if (config.modified and r.modified) or (config.unpushed and r.unpushed)]
+
+    if config.by_date:
+        repos.sort(key=lambda r: r.last_modified or datetime.min, reverse=True)
+
+    width = max((len(r.path.name) for r in repos), default=0)
+    fmt = "{0:>4}. {1:<2} {2:>6} - {3:<10} - {4:<{width}} - {5}"
+    for i, repo in enumerate(repos):
+        flags = ('M' if repo.modified else ' ') + ('?' if repo.untracked else ' ')
+        unpushed = '+{}'.format(repo.unpushed) if repo.unpushed else ''
+        date = repo.last_modified.strftime('%Y-%m-%d') if repo.last_modified else '-'
+        origin = repo.ref or repo.origin or '(no origin)'
+        print(fmt.format(i+1, flags, unpushed, date, repo.path.name, origin, width=width))
+
+
 def cmd_show_config(config):
     config = vars(config)
     del config['func']
@@ -195,7 +217,9 @@ class BaseConfig(argparse.Namespace):
         # FIXME: verbosity argument does not affect this, it is previous to setLevel
         # logging.debug("Loading config '{}'".format(self.config_file.fname))
 
-        self.destdir = self.config_file.destdir
+        # an explicit '--destdir' takes precedence over the config file
+        if getattr(self, 'destdir', None) is None:
+            self.destdir = self.config_file.destdir
 
     @property
     def credentials(self):
@@ -277,9 +301,39 @@ Abbreviated names are allowed when suitable configuration is given.
     parser_clone.add_argument('--http', dest='proto', default='ssh',
                               action='store_const', const='https',
                               help='Use HTTP instead of SSH')
-    parser_clone.add_argument('--destdir', default=Path.cwd(), type=Path,
+    parser_clone.add_argument('--destdir', type=Path,
                               help='directory where save repository')
     parser_clone.add_argument('repo', help=repo_help)
+
+    parser_local = cmds.add_parser('local', help='inspect local clones')
+    local_cmds = parser_local.add_subparsers(metavar='COMMAND', required=True)
+
+    parser_local_status = local_cmds.add_parser(
+        'status', help='list local clones and their pending changes',
+        formatter_class=argparse.RawTextHelpFormatter,
+        description='''\
+List the git repositories at the clone directory ('[clone] destdir' in the
+config file). There is no network access: remote branches are the ones
+known since the last fetch.
+
+  M   changes in tracked files (staged or not)
+  ?   untracked files
+  +N  N commits not pushed to any remote (local branches and detached HEAD)
+
+Given both '-m' and '-u', repositories matching either of them are listed.
+
+The date is the last modification: the newest of the last commit in local
+branches (or detached HEAD) and the files with local changes.
+''')
+    parser_local_status.set_defaults(func=cmd_local_status)
+    parser_local_status.add_argument('--destdir', type=Path,
+                                     help='directory with the local clones')
+    parser_local_status.add_argument('-m', '--modified', action='store_true',
+                                     help='only repositories with changes in tracked files')
+    parser_local_status.add_argument('-u', '--unpushed', action='store_true',
+                                     help='only repositories with unpushed commits')
+    parser_local_status.add_argument('-t', '--by-date', action='store_true',
+                                     help='sort by last modification, newest first')
 
     parser_config = cmds.add_parser('config', help='show config')
     parser_config.set_defaults(func=cmd_show_config)

@@ -1,7 +1,12 @@
+import os
 import time
 import random
+import shutil
+import tempfile
+import subprocess
 from unittest import TestCase
 from pathlib import Path
+from datetime import datetime
 from doublex import Stub, ANY_ARG
 
 import ripio
@@ -431,6 +436,159 @@ class Github_URL(TestCase):
         result = ripio.RepoRef.from_origin(
             'https://github.com/davidvilla/python-doublex')
         self.assertEqual(result, expected)
+
+
+def git_cmd(cwd, *args, env=None):
+    subprocess.run(
+        ['git', '-c', 'user.name=ripio', '-c', 'user.email=ripio@example.com'] + list(args),
+        cwd=cwd, check=True, capture_output=True, env=dict(os.environ, **(env or {})))
+
+
+class LocalRepo(TestCase):
+    # a local bare repository plays the remote site, so there is no network access
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+        git_cmd(self.tmp, 'init', '--bare', 'remote.git')
+        git_cmd(self.tmp, 'clone', 'remote.git', 'clone')
+        self.clone = self.tmp / 'clone'
+
+        (self.clone / 'tracked').write_text('initial')
+        git_cmd(self.clone, 'add', 'tracked')
+        self.commit('initial')
+        git_cmd(self.clone, 'push', 'origin', 'HEAD')
+
+    def commit(self, msg, repo=None, date='2020-01-01T10:00:00'):
+        git_cmd(repo or self.clone, 'commit', '--allow-empty', '-m', msg,
+                env={'GIT_AUTHOR_DATE': date, 'GIT_COMMITTER_DATE': date})
+
+    def touch(self, fname, date):
+        os.utime(self.clone / fname, (date.timestamp(), date.timestamp()))
+
+    def test_clean(self):
+        sut = ripio.LocalRepo(self.clone)
+        self.assertFalse(sut.modified)
+        self.assertFalse(sut.untracked)
+        self.assertEqual(sut.unpushed, 0)
+
+    def test_changed_tracked_file(self):
+        (self.clone / 'tracked').write_text('changed')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertTrue(sut.modified)
+        self.assertFalse(sut.untracked)
+
+    def test_staged_new_file(self):
+        (self.clone / 'new').write_text('new')
+        git_cmd(self.clone, 'add', 'new')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertTrue(sut.modified)
+
+    def test_untracked_file_is_not_a_modification(self):
+        (self.clone / 'untracked').write_text('untracked')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertFalse(sut.modified)
+        self.assertTrue(sut.untracked)
+
+    def test_unpushed_commits(self):
+        self.commit('one')
+        self.commit('two')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.unpushed, 2)
+
+    def test_unpushed_commits_in_branch_without_upstream(self):
+        git_cmd(self.clone, 'checkout', '-b', 'feature')
+        self.commit('feature')
+        git_cmd(self.clone, 'checkout', '-')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.unpushed, 1)
+
+    def test_unpushed_commits_in_detached_head(self):
+        git_cmd(self.clone, 'checkout', '--detach')
+        self.commit('detached')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.unpushed, 1)
+
+    def test_hosted_origin(self):
+        git_cmd(self.clone, 'remote', 'set-url', 'origin', 'git@github.com:ripio-test/repo1.git')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.ref, ripio.RepoRef('gh:ripio-test/repo1'))
+
+    def test_unsupported_origin(self):
+        url = 'git@gitlab.com:ripio-test/repo1.git'
+        git_cmd(self.clone, 'remote', 'set-url', 'origin', url)
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.origin, url)
+        self.assertIsNone(sut.ref)
+
+    def test_no_remote_has_every_commit_unpushed(self):
+        git_cmd(self.tmp, 'init', 'local')
+        self.commit('one', self.tmp / 'local')
+        self.commit('two', self.tmp / 'local')
+        sut = ripio.LocalRepo(self.tmp / 'local')
+        self.assertIsNone(sut.origin)
+        self.assertIsNone(sut.ref)
+        self.assertEqual(sut.unpushed, 2)
+
+    def test_empty_repository(self):
+        git_cmd(self.tmp, 'init', 'empty')
+        sut = ripio.LocalRepo(self.tmp / 'empty')
+        self.assertEqual(sut.unpushed, 0)
+        self.assertIsNone(sut.last_modified)
+
+    def test_last_modified_is_last_commit_date(self):
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.last_modified, datetime(2020, 1, 1, 10, 0))
+
+    def test_last_modified_includes_commits_in_other_branches(self):
+        git_cmd(self.clone, 'checkout', '-b', 'feature')
+        self.commit('feature', date='2021-01-01T10:00:00')
+        git_cmd(self.clone, 'checkout', '-')
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.last_modified, datetime(2021, 1, 1, 10, 0))
+
+    def test_last_modified_includes_changed_files(self):
+        date = datetime(2022, 1, 1, 10, 0)
+        (self.clone / 'tracked').write_text('changed')
+        self.touch('tracked', date)
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.last_modified, date)
+
+    def test_last_modified_includes_untracked_files_with_unusual_names(self):
+        date = datetime(2022, 1, 1, 10, 0)
+        (self.clone / 'untracked ñ').write_text('untracked')
+        self.touch('untracked ñ', date)
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.last_modified, date)
+
+    def test_last_modified_includes_renamed_files(self):
+        date = datetime(2022, 1, 1, 10, 0)
+        git_cmd(self.clone, 'mv', 'tracked', 'renamed')
+        self.touch('renamed', date)
+        sut = ripio.LocalRepo(self.clone)
+        self.assertEqual(sut.last_modified, date)
+
+    def test_deleted_file_has_no_date(self):
+        (self.clone / 'tracked').unlink()
+        sut = ripio.LocalRepo(self.clone)
+        self.assertTrue(sut.modified)
+        self.assertEqual(sut.last_modified, datetime(2020, 1, 1, 10, 0))
+
+    def test_bare_repository(self):
+        with self.assertRaises(ripio.DirectoryIsNotRepository):
+            ripio.LocalRepo(self.tmp / 'remote.git')
+
+    def test_find_skips_bare_repositories_and_plain_directories(self):
+        (self.tmp / 'plain').mkdir()
+        (self.tmp / 'file').write_text('file')
+        git_cmd(self.tmp, 'init', 'another')
+
+        result = ripio.LocalRepo.find(self.tmp)
+        self.assertEqual([r.path.name for r in result], ['another', 'clone'])
+
+    def test_find_missing_directory(self):
+        with self.assertRaises(ripio.DirectoryNotFound):
+            ripio.LocalRepo.find(self.tmp / 'missing')
 
 
 # FIXME: test "cmd: ripio site"

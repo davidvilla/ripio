@@ -4,12 +4,14 @@ import sys
 import json
 import time
 import difflib
+from datetime import datetime
 from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse, urlunparse
 import re
 import logging
 import socket
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import requests.utils
@@ -107,6 +109,9 @@ class DirectoryAlreadyExists(error):
 
 class DirectoryIsNotRepository(error):
     reason = 'destination directory exists but is NOT a git repository'
+
+class DirectoryNotFound(error):
+    reason = 'directory NOT found'
 
 class WrongCompletion(error):
     def __init__(self, name, suggestions=None):
@@ -617,6 +622,99 @@ class Repo(Auth):
     def list_collaborators(self):
         raise NotImplementedError
 
+
+class LocalRepo:
+    "State of a local working copy, as known since its last fetch (no network access)"
+
+    def __init__(self, path):
+        self.path = Path(path)
+        try:
+            repo = git.Repo(self.path)
+        except (git.exc.InvalidGitRepositoryError, git.exc.NoSuchPathError):
+            raise DirectoryIsNotRepository(self.path)
+
+        if repo.bare:
+            raise DirectoryIsNotRepository(self.path)
+
+        with repo:
+            self._load(repo)
+
+    def _load(self, repo):
+        try:
+            self.origin = repo.remote().url
+        except ValueError:
+            self.origin = None
+
+        # origins at other sites (or local paths) are listed, but have no ref
+        self.ref = None
+        if self.origin is not None:
+            try:
+                self.ref = RepoRef.from_origin(self.origin)
+            except (error, LookupError):
+                logging.debug("- unsupported origin '{}'".format(self.origin))
+
+        status = self._status(repo)
+        self.modified = any(xy != '??' for xy, path in status)
+        self.untracked = any(xy == '??' for xy, path in status)
+
+        # commits in local branches or a detached HEAD, missing in every remote branch
+        revs = ['--branches']
+        if repo.head.is_valid():
+            revs.append('HEAD')
+
+        self.unpushed = int(repo.git.rev_list('--count', *revs, '--not', '--remotes'))
+
+        # newest of the last local commit and the files with local changes
+        timestamps = [int(t) for t in repo.git.log('-1', '--format=%ct', *revs).split()]
+        for xy, path in status:
+            try:
+                timestamps.append((self.path / path).lstat().st_mtime)
+            except OSError:  # deleted
+                pass
+
+        self.last_modified = None
+        if timestamps:
+            self.last_modified = datetime.fromtimestamp(max(timestamps))
+
+    @staticmethod
+    def _status(repo):
+        "(XY, path) entries of 'git status --porcelain'"
+        retval = []
+        fields = iter(repo.git.status('--porcelain', '-z').split('\0'))
+        for entry in fields:
+            if not entry:
+                continue
+
+            xy, path = entry[:2], entry[3:]
+            if 'R' in xy or 'C' in xy:
+                next(fields)  # source path of the rename/copy
+
+            retval.append((xy, path))
+
+        return retval
+
+    @classmethod
+    def find(cls, root_dir):
+        "Working copies at root_dir's direct subdirectories, sorted by name"
+        root_dir = Path(root_dir)
+        if not root_dir.is_dir():
+            raise DirectoryNotFound(root_dir)
+
+        def load(path):
+            try:
+                return cls(path)
+            except DirectoryIsNotRepository:
+                return None
+            except git.exc.GitCommandError as e:
+                logging.error("- skipping '{}': {}".format(path, e))
+                return None
+
+        dirs = sorted(entry for entry in root_dir.iterdir() if entry.is_dir())
+        with ThreadPoolExecutor() as pool:
+            return [repo for repo in pool.map(load, dirs) if repo is not None]
+
+    def __repr__(self):
+        return "<LocalRepo '{}'>".format(self.path)
 
 
 def api_check(reply, expected, raises):
