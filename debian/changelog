@@ -1,3 +1,9 @@
+ripio (0.20261026-1) unstable; urgency=low
+
+  * New release
+
+ -- David Villa Alises <David.Villa@gmail.com>  Mon, 26 Oct 2026 08:50:03 +0100
+
 ripio (0.20260914-2) unstable; urgency=low
 
   * Fix lintian findings: bump Standards-Version to 4.7.2, migrate to
