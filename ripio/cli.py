@@ -192,9 +192,9 @@ def cmd_local_status(config):
 
 
 def _has_issue(repo, errors):
-    "Origin renamed, transferred or not found at its site"
-    return repo.moved_to is not None or \
-        isinstance(errors.get(repo), (ripio.RepositoryNotFound, ripio.AccessDenied))
+    """Origin not found or denied at its site. A former name (renamed or transferred
+    origin) is not an issue: sites redirect it, and 'ripio info' reports it"""
+    return isinstance(errors.get(repo), (ripio.RepositoryNotFound, ripio.AccessDenied))
 
 
 BLINK, RED, GREEN = '5', '31', '32'
@@ -515,7 +515,7 @@ config file). Remote branches are the ones known since the last fetch.
   M   changes in tracked files (staged or not)
   ?   untracked files
   +N  N commits not pushed to any remote (local branches and detached HEAD)
-  !   origin renamed, transferred or not found at its site ('ripio info DIR')
+  !   origin not found or access denied at its site ('ripio info DIR')
 
 Given several of '-m', '-u' and '-i', repositories matching any of them are listed.
 

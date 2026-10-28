@@ -804,7 +804,7 @@ class TestLocalStatusCommand:
         assert [(row[0][:7], row[2].strip(), row[3].strip()) for row in rows] == [
             ('   1.  ', 'public', 'fine'),
             ('   2. !', '-', 'gone'),
-            ('   3. !', 'private', 'moved')]
+            ('   3.  ', 'private', 'moved')]
 
     def test_site_wide_errors_are_reported_once(self, tmp_path, site_repos, capsys):
         for name in ['repo1', 'repo2']:
@@ -830,29 +830,39 @@ class TestLocalStatusCommand:
 
     def test_issues_only(self, tmp_path, site_repos, capsys):
         local_clone(tmp_path, 'fine', 'git@github.com:ripio-test/fine.git')
+        local_clone(tmp_path, 'gone', 'git@github.com:ripio-test/gone.git')
+        local_clone(tmp_path, 'denied', 'git@github.com:ripio-test/denied.git')
         local_clone(tmp_path, 'moved', 'git@github.com:ripio-test/repo1.git')
         site_repos['github:ripio-test/fine'] = FakeSiteRepo('github:ripio-test/fine')
+        site_repos['github:ripio-test/gone'] = FakeSiteRepo(
+            'github:ripio-test/gone', error=ripio.RepositoryNotFound(ripio.RepoRef('gh:ripio-test/gone')))
+        site_repos['github:ripio-test/denied'] = FakeSiteRepo(
+            'github:ripio-test/denied', error=ripio.AccessDenied(ripio.RepoRef('gh:ripio-test/denied')))
         site_repos['github:ripio-test/repo1'] = FakeSiteRepo('github:ripio-test/renamed')
 
         run_command(cli.cmd_local_status, destdir=tmp_path, issues=True)
 
+        # a former name is not an issue: 'ripio info' reports it
         out = capsys.readouterr().out
-        assert ' moved ' in out
+        assert ' gone ' in out
+        assert ' denied ' in out
+        assert ' moved ' not in out
         assert ' fine ' not in out
 
     def test_issues_or_unpushed(self, tmp_path, site_repos, capsys):
         local_clone(tmp_path, 'fine', 'git@github.com:ripio-test/fine.git')
         unpushed = local_clone(tmp_path, 'unpushed', 'git@github.com:ripio-test/unpushed.git')
         commit(unpushed, 'unpushed')
-        local_clone(tmp_path, 'moved', 'git@github.com:ripio-test/repo1.git')
+        local_clone(tmp_path, 'gone', 'git@github.com:ripio-test/gone.git')
         site_repos['github:ripio-test/fine'] = FakeSiteRepo('github:ripio-test/fine')
         site_repos['github:ripio-test/unpushed'] = FakeSiteRepo('github:ripio-test/unpushed')
-        site_repos['github:ripio-test/repo1'] = FakeSiteRepo('github:ripio-test/renamed')
+        site_repos['github:ripio-test/gone'] = FakeSiteRepo(
+            'github:ripio-test/gone', error=ripio.RepositoryNotFound(ripio.RepoRef('gh:ripio-test/gone')))
 
         run_command(cli.cmd_local_status, destdir=tmp_path, issues=True, unpushed=True)
 
         out = capsys.readouterr().out
-        assert ' moved ' in out
+        assert ' gone ' in out
         assert ' unpushed ' in out
         assert ' fine ' not in out
 

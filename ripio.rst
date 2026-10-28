@@ -96,9 +96,10 @@ local status [--destdir DIR] [-m] [-u] [-i] [-t] [--offline]
     local branches (or detached HEAD) and the files with local changes.
     Remote branches are the ones known since the last fetch. Origins at
     GitHub and Bitbucket are looked up to show their access (private or
-    public) and to mark with ``!`` (blinking on terminals) those renamed,
-    transferred or not found, whose details are shown by ``info DIR``;
-    Bitbucket does not redirect the former names of renamed repositories,
+    public) and to mark with ``!`` (blinking on terminals) those not found
+    or with access denied, whose details are shown by ``info DIR``. Former
+    names of renamed or transferred repositories are not marked, since
+    GitHub redirects them (``info DIR`` reports them); Bitbucket does not,
     so they are reported as not found. ``--offline`` skips these lookups.
 
 ls-colab REPO
