@@ -25,8 +25,11 @@ inspecting repositories, without leaving the shell.
 A repository is referenced as ``site:owner/name``, for example
 ``github:twitter/wordpress`` or ``bitbucket:paypal/example`` (``gh`` and
 ``bb`` are accepted as site abbreviations). A plain git URL
-(``https://github.com/owner/name`` or ``git@github.com:owner/name.git``) is
-also accepted. When workspaces are configured (see CONFIGURATION below), a
+(``https://github.com/owner/name``, ``git@github.com:owner/name.git`` or
+``github.com:owner/name.git``) is also accepted, and so is the URL of any
+page of the repository at its site, such as
+``https://bitbucket.org/owner/name/src/master/``. When workspaces are
+configured (see CONFIGURATION below), a
 bare name such as ``example`` or ``gh:example`` may be used and ``ripio``
 will look it up among the configured workspaces.
 

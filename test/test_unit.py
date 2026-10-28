@@ -253,9 +253,27 @@ class TestRepoRef:
         pytest.param('github/davidvilla/ripio', 'github:davidvilla/ripio', id='slash-form'),
         pytest.param('gh/davidvilla/ripio', 'github:davidvilla/ripio',
                      id='slash-form-abbreviated-site'),
+        pytest.param('bitbucket.org:arco_group/migrated.citisim-signaling-server.git',
+                     'bitbucket:arco_group/migrated.citisim-signaling-server', id='scp-without-user'),
+        pytest.param('https://bitbucket.org/arco_group/migrated.citisim-signaling-server/src/master/',
+                     'bitbucket:arco_group/migrated.citisim-signaling-server', id='bitbucket-page'),
+        pytest.param('https://github.com/davidvilla/ripio/tree/master/test', 'github:davidvilla/ripio',
+                     id='github-page'),
+        pytest.param('https://github.com/davidvilla/ripio?tab=readme-ov-file',
+                     'github:davidvilla/ripio', id='query'),
+        pytest.param('https://github.com/davidvilla/ripio#readme', 'github:davidvilla/ripio',
+                     id='fragment'),
     ])
     def test_global_name(self, name, expected):
         assert str(ripio.RepoRef(name)) == expected
+
+    @pytest.mark.parametrize('name', [
+        pytest.param('https://github.com/davidvilla', id='https-owner-only'),
+        pytest.param('github.com:davidvilla', id='scp-owner-only'),
+    ])
+    def test_url_without_repository(self, name):
+        with pytest.raises(ripio.BadRepositoryName):
+            ripio.RepoRef(name)
 
     def test_slash_form_equals_colon_form(self):
         assert ripio.RepoRef('bitbucket/DavidVilla/prego3') == \
@@ -282,6 +300,10 @@ class TestRepoRef:
                      id='git-without-dot-git'),
         pytest.param('ssh://git@bitbucket.org/DavidVilla/prego3', 'bitbucket:DavidVilla/prego3',
                      id='ssh-without-dot-git'),
+        pytest.param('bitbucket.org:DavidVilla/ripio.git', 'bitbucket:DavidVilla/ripio',
+                     id='scp-without-user'),
+        pytest.param('git@ssh.bitbucket.org:DavidVilla/ripio.git', 'bitbucket:DavidVilla/ripio',
+                     id='bitbucket-ssh-host'),
     ])
     def test_from_origin(self, origin, expected):
         assert ripio.RepoRef.from_origin(origin) == ripio.RepoRef(expected)
@@ -674,6 +696,7 @@ class FakeSiteRepo:
         self.canonical_name = canonical_name
         self.access = access
         self.error = error
+        self.deleted = False
         self.commits = []
         # NotImplemented: a site without CI support
         self.ci_run = NotImplemented
@@ -685,6 +708,9 @@ class FakeSiteRepo:
     def info(self):
         self.check()
         return "- name:          {}\n".format(self.canonical_name)
+
+    def delete(self):
+        self.deleted = True
 
     def last_commits(self):
         return iter(self.commits)
@@ -782,6 +808,25 @@ def run_command(func, **kargs):
         credentials={})
     vars(config).update(kargs)
     func(config)
+
+
+class TestDeleteCommand:
+    @pytest.mark.parametrize('name', [
+        'bitbucket.org:arco_group/migrated.citisim-signaling-server.git',
+        'git@bitbucket.org:arco_group/migrated.citisim-signaling-server.git',
+        'https://bitbucket.org/arco_group/migrated.citisim-signaling-server',
+        'https://bitbucket.org/arco_group/migrated.citisim-signaling-server/src/master/README.md',
+    ])
+    def test_bitbucket_origin_or_page(self, name, site_repos, monkeypatch, capsys):
+        site_repo = FakeSiteRepo('bitbucket:arco_group/migrated.citisim-signaling-server')
+        site_repos[site_repo.canonical_name] = site_repo
+        monkeypatch.setattr(ripio.utils, 'confirm_irrecoverable_operation', lambda: None)
+
+        run_command(cli.cmd_repo_delete, repo=name)
+
+        assert site_repo.deleted
+        assert "- repository identity is 'bitbucket:arco_group/migrated.citisim-signaling-server'" \
+            in capsys.readouterr().out
 
 
 class TestLocalStatusCommand:

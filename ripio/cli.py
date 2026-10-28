@@ -444,7 +444,8 @@ Abbreviated references are allowed (when 'workspaces' are configured):
 
 URLs are valid too:
 - 'https://github.com/twitter/wordpress'
-- 'git@github.com:twitter/wordpress.git'
+- 'git@github.com:twitter/wordpress.git' or 'github.com:twitter/wordpress.git'
+- any page of the repository, like 'https://github.com/twitter/wordpress/tree/master'
 ''' + ripio.CONFIG_USAGE)
 
     parser.add_argument('--config', help='alternate config file',

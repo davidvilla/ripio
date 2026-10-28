@@ -30,6 +30,8 @@ GITHUB = 'github.com'
 
 sites = {
     BITBUCKET: 'bitbucket',
+    # host of the SSH clone links Bitbucket gives
+    'ssh.' + BITBUCKET: 'bitbucket',
     GITHUB: 'github',
 }
 
@@ -223,7 +225,8 @@ class WorkspaceName:
 
 class RepoRef:
     def __init__(self, site_full_name, site=None):
-        if site_full_name.startswith(('https://', 'git@', 'ssh://')):
+        if site_full_name.startswith(('https://', 'git@', 'ssh://')) or \
+                site_full_name.split(':')[0] in sites:
             site_full_name = RepoRef.parse_origin(site_full_name)
 
         if ':' not in site_full_name and site_full_name.count('/') == 2:
@@ -245,19 +248,25 @@ class RepoRef:
     @classmethod
     def parse_origin(cls, url):
         if url.startswith('ssh://'):
-            fields = re.findall(r'\Assh://git@([^/]+)/(.+?)(?:\.git)?/?\Z', url)[0]
+            pattern = r'\Assh://git@([^/]+)/(.+?)(?:\.git)?/?\Z'
 
-        elif url.startswith('git@'):
-            fields = re.findall(r'\Agit@([^:]+):(.+?)(?:\.git)?/?\Z', url)[0]
+        elif url.startswith('git@') or url.split(':')[0] in sites:
+            # scp-like, the user may be omitted: 'bitbucket.org:owner/name.git'
+            pattern = r'\A(?:git@)?([^:]+):(.+?)(?:\.git)?/?\Z'
 
         elif url.startswith('https://'):
-            # may include credentials, as 'ripio clone --http' does
-            fields = re.findall(r'\Ahttps?://(?:[^@/]+@)?([^/]+)/(.+?)(?:\.git)?/?\Z', url)[0]
+            # may include credentials, as 'ripio clone --http' does, or be any page of
+            # the repository at its site, like 'https://bitbucket.org/owner/name/src/master/'
+            pattern = r'\Ahttps?://(?:[^@/]+@)?([^/]+)/([^/?#]+/[^/?#]+?)(?:\.git)?(?:[/?#].*)?\Z'
 
         else:
             raise BadRepositoryName(url)
 
-        return '{}:{}'.format(sites[fields[0]], fields[1])
+        match = re.match(pattern, url)
+        if match is None:
+            raise BadRepositoryName(url)
+
+        return '{}:{}'.format(sites[match.group(1)], match.group(2))
 
     @classmethod
     def from_origin(cls, url):
