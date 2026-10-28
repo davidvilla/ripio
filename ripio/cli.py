@@ -8,6 +8,7 @@ from pathlib import Path
 import webbrowser
 import warnings
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 import ripio
 import ripio.utils as utils
@@ -54,9 +55,12 @@ def get_repo(config, name=None, guess=True):
     return ripio.Repo.make(repo_ref, config.credentials)
 
 
+def cwd_root():
+    return ripio.utils.find_in_ancestors('.git', str(Path.cwd()))
+
+
 def cwd_repo(config):
-    root = ripio.utils.find_in_ancestors('.git', str(Path.cwd()))
-    return ripio.Repo.from_dir(root, config.credentials)
+    return ripio.Repo.from_dir(cwd_root(), config.credentials)
 
 
 def cmd_ls_repos(config):
@@ -145,24 +149,95 @@ def _clone(config, repo):
 
 
 def cmd_local_status(config):
+    if config.issues and config.offline:
+        raise ripio.error("'--issues' looks up origins at their sites, so not with '--offline'")
+
     print("- local clones at '{}'".format(utils.pretty_path(config.destdir)))
     repos = ripio.LocalRepo.find(config.destdir)
+    errors = {}
 
-    if config.modified or config.unpushed:
-        repos = [r for r in repos
-                 if (config.modified and r.modified) or (config.unpushed and r.unpushed)]
+    def listed(repo):
+        if not (config.modified or config.unpushed or config.issues):
+            return True
+
+        return (config.modified and repo.modified) or (config.unpushed and repo.unpushed) or \
+            (config.issues and _has_issue(repo, errors))
+
+    # origins are looked up only for the listed repositories, when known in advance
+    if not config.issues:
+        repos = [r for r in repos if listed(r)]
+
+    if not config.offline:
+        print("- checking origins at their sites...")
+        errors = _check_origins(repos, config.credentials)
+
+    repos = [r for r in repos if listed(r)]
 
     if config.by_date:
         repos.sort(key=lambda r: r.last_modified or datetime.min, reverse=True)
 
     width = max((len(r.path.name) for r in repos), default=0)
-    fmt = "{0:>4}. {1:<2} {2:>6} - {3:<10} - {4:<{width}} - {5}"
+    fmt = "{0:>4}. {1} {2:<2} {3:>6} - {4:<10} - {5:<7} - {6:<{width}} - {7}"
     for i, repo in enumerate(repos):
+        # details with 'ripio info'
+        problem = _has_issue(repo, errors)
         flags = ('M' if repo.modified else ' ') + ('?' if repo.untracked else ' ')
         unpushed = '+{}'.format(repo.unpushed) if repo.unpushed else ''
         date = repo.last_modified.strftime('%Y-%m-%d') if repo.last_modified else '-'
-        origin = repo.ref or repo.origin or '(no origin)'
-        print(fmt.format(i+1, flags, unpushed, date, repo.path.name, origin, width=width))
+        origin = repo.ref or (repo.origin and ripio.safe_url(repo.origin)) or '(no origin)'
+        print(fmt.format(i+1, _ansi('!', BLINK, RED) if problem else ' ', flags, unpushed,
+                         date, repo.access or '-', repo.path.name, origin, width=width))
+
+    _warn_unchecked(errors)
+
+
+def _has_issue(repo, errors):
+    "Origin renamed, transferred or not found at its site"
+    return repo.moved_to is not None or \
+        isinstance(errors.get(repo), (ripio.RepositoryNotFound, ripio.AccessDenied))
+
+
+BLINK, RED, GREEN = '5', '31', '32'
+
+
+def _ansi(text, *codes):
+    "Styled text, on terminals only"
+    if not sys.stdout.isatty() or 'NO_COLOR' in os.environ:
+        return text
+
+    return '\033[{}m{}\033[0m'.format(';'.join(codes), text)
+
+
+def _mark(ok):
+    return _ansi('✔', GREEN) if ok else _ansi('✘', RED)
+
+
+def _check_origins(repos, credentials):
+    "Look up the supported origins at their sites, returning errors by repository"
+    def check(repo):
+        try:
+            repo.check_origin(credentials)
+        except ripio.error as e:
+            return e
+
+    repos = [r for r in repos if r.ref is not None]
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        return {repo: e for repo, e in zip(repos, pool.map(check, repos)) if e is not None}
+
+
+def _warn_unchecked(errors):
+    "Site-wide errors (rate limit, network...), not about a repository, are reported once"
+    unchecked = {}
+    for error in errors.values():
+        if isinstance(error, (ripio.RepositoryNotFound, ripio.AccessDenied)):
+            continue
+
+        key = (type(error), str(error.get_value()))
+        unchecked.setdefault(key, []).append(error)
+
+    for same_errors in unchecked.values():
+        print("- warning: {} origins could not be checked:".format(len(same_errors)))
+        print(same_errors[0])
 
 
 def cmd_show_config(config):
@@ -188,14 +263,136 @@ def cmd_site(config):
     webbrowser.open(url)
 
 
+def clone_dir(config):
+    "Clone directory given as repo argument: a path, or a directory at destdir"
+    for path in [Path(config.repo), config.destdir / config.repo]:
+        if (path / '.git').exists():
+            return path
+
+    return None
+
+
 def cmd_info(config):
-    if config.repo:
+    local_dirs = []
+    root = clone_dir(config) if config.repo else cwd_root()
+    if config.repo and root is None:
         repo = get_repo(config)
     else:
-        repo = cwd_repo(config)
+        repo = ripio.Repo.from_dir(root, config.credentials)
+        local_dirs.append(Path(root))
 
-    print(repo.info())
+    try:
+        print(repo.info(), end='')
+    except ripio.error as e:
+        # the site failed (i.e. repository not found), but local clones are still shown
+        print("- {:14} {}".format('name:', repo.ref))
+        problem = {ripio.RepositoryNotFound: 'NOT found',
+                   ripio.AccessDenied: 'access DENIED'}.get(type(e))
+        _print_clones(config, [repo.ref], local_dirs, problem=problem)
+        raise
+
 #    print(repo.permissions)
+
+    _print_last_commit(repo)
+    _print_ci(repo)
+
+    current = ripio.RepoRef(repo.canonical_name)
+    _print_clones(config, [repo.ref, current], local_dirs, current, config.credentials)
+
+
+def _print_last_commit(repo):
+    try:
+        commit = next(iter(repo.last_commits()), None)
+    except ripio.error as e:
+        print("- {:14} unavailable ({})".format('last commit:', type(e).__name__))
+        return
+
+    title = 'none'
+    if commit is not None:
+        title = (commit['message'].strip().splitlines() or [''])[0]
+
+    print("- {:14} {}".format('last commit:', title))
+
+
+def _print_ci(repo):
+    try:
+        run = repo.last_ci_run()
+    except NotImplementedError:
+        return
+    except ripio.error as e:
+        print("- {:14} unavailable ({})".format('CI:', type(e).__name__))
+        return
+
+    if run is None:
+        print("- {:14} no runs".format('CI:'))
+        return
+
+    if run['status'] == 'completed':
+        state = '{} {}'.format(_mark(run['conclusion'] == 'success'), run['conclusion'].upper())
+        duration, end = 'duration:', run['updated']
+    else:
+        state = run['status'].replace('_', ' ').upper()
+        duration, end = 'elapsed:', datetime.now()
+
+    seconds = (end - run['started']).total_seconds()
+    print("- {:14} {}, workflow '{}'".format('CI:', state, run['workflow']))
+    print("  - {:12} {}".format('commit:', run['title']))
+    print("  - {:12} {}".format('executed:', _when(run['started'])))
+    print("  - {:12} {}".format(duration, ripio.format_duration(seconds)))
+
+
+def _print_clones(config, refs, local_dirs, current=None, credentials=None, problem=None):
+    clones = ripio.LocalRepo.find_clones(config.destdir, refs, credentials)
+    found = {c.path.resolve() for c in clones}
+    clones += [ripio.LocalRepo(d) for d in local_dirs if d.resolve() not in found]
+
+    if not clones:
+        print("- {:14} none at '{}'".format('local clone:', utils.pretty_path(config.destdir)))
+
+    for clone in clones:
+        _print_clone_info(clone, current, problem)
+
+
+def _when(date):
+    "Date and how long ago, like '2026-10-28 19:36 (1h 23m ago)'"
+    ago = ripio.format_duration((datetime.now() - date).total_seconds())
+    return '{:%Y-%m-%d %H:%M} ({} ago)'.format(date, ago)
+
+
+def _commits(n):
+    return '{} commit{}'.format(n, '' if n == 1 else 's')
+
+
+def _print_clone_info(clone, current, problem=None):
+    to_push = []
+    if clone.unpushed:
+        to_push.append(_commits(clone.unpushed))
+    if clone.modified:
+        to_push.append('uncommitted changes')
+    if clone.untracked:
+        to_push.append('untracked files')
+
+    to_pull = _commits(clone.unpulled) if clone.unpulled else 'nothing'
+    to_pull += ', as of last fetch'
+    if clone.last_fetch:
+        to_pull += ' on ' + _when(clone.last_fetch)
+
+    last_change = '-'
+    if clone.last_modified:
+        last_change = _when(clone.last_modified)
+
+    print("- {:14} {}".format('local clone:', utils.pretty_path(clone.path)))
+
+    # sites ignore case in owner and repository names
+    if current is not None and clone.ref.global_name.lower() != current.global_name.lower():
+        problem = 'former name'
+
+    if problem is not None:
+        print("  - {:12} {} {} ({})".format('origin:', _mark(False), clone.ref, problem))
+
+    print("  - {:12} {}".format('last change:', last_change))
+    print("  - {:12} {} {}".format('to push:', _mark(not to_push), ', '.join(to_push) or 'nothing'))
+    print("  - {:12} {} {}".format('to pull:', _mark(not clone.unpulled), to_pull))
 
 
 def cmd_ls_colab(config):
@@ -313,17 +510,21 @@ Abbreviated names are allowed when suitable configuration is given.
         formatter_class=argparse.RawTextHelpFormatter,
         description='''\
 List the git repositories at the clone directory ('[clone] destdir' in the
-config file). There is no network access: remote branches are the ones
-known since the last fetch.
+config file). Remote branches are the ones known since the last fetch.
 
   M   changes in tracked files (staged or not)
   ?   untracked files
   +N  N commits not pushed to any remote (local branches and detached HEAD)
+  !   origin renamed, transferred or not found at its site ('ripio info DIR')
 
-Given both '-m' and '-u', repositories matching either of them are listed.
+Given several of '-m', '-u' and '-i', repositories matching any of them are listed.
 
 The date is the last modification: the newest of the last commit in local
 branches (or detached HEAD) and the files with local changes.
+
+Origins at github/bitbucket are looked up to show their access (private or
+public) and their problems ('!'). Bitbucket does not redirect the former
+names of renamed repositories: they are not found.
 ''')
     parser_local_status.set_defaults(func=cmd_local_status)
     parser_local_status.add_argument('--destdir', type=Path,
@@ -332,8 +533,12 @@ branches (or detached HEAD) and the files with local changes.
                                      help='only repositories with changes in tracked files')
     parser_local_status.add_argument('-u', '--unpushed', action='store_true',
                                      help='only repositories with unpushed commits')
+    parser_local_status.add_argument('-i', '--issues', action='store_true',
+                                     help="only repositories with origin issues ('!')")
     parser_local_status.add_argument('-t', '--by-date', action='store_true',
                                      help='sort by last modification, newest first')
+    parser_local_status.add_argument('--offline', action='store_true',
+                                     help='do not look up origins at their sites')
 
     parser_config = cmds.add_parser('config', help='show config')
     parser_config.set_defaults(func=cmd_show_config)
@@ -341,9 +546,9 @@ branches (or detached HEAD) and the files with local changes.
     parser_site = cmds.add_parser('site', help='open webpage for the current repository')
     parser_site.set_defaults(func=cmd_site)
 
-    parser_info = cmds.add_parser('info', help='show repository info')
+    parser_info = cmds.add_parser('info', help='show repository info and its local clones')
     parser_info.set_defaults(func=cmd_info)
-    parser_info.add_argument('repo', nargs='?', help=repo_help)
+    parser_info.add_argument('repo', nargs='?', help=repo_help + ', or clone directory')
 
     parser_ls_colabs = cmds.add_parser('ls-colab', help='list collaborators')
     parser_ls_colabs.set_defaults(func=cmd_ls_colab)

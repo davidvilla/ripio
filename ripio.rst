@@ -50,9 +50,21 @@ ls WORKSPACE
 head REPO
     Show the last commits of a repository.
 
-info [REPO]
-    Show repository information. Without REPO, uses the repository in the
-    current directory.
+info [REPO | DIR]
+    Show repository information: current name (after renames or
+    transfers), web page, clone URLs, access, size, first line of the last
+    commit message and, at GitHub, the last GitHub Actions run (state,
+    workflow, commit, date and duration). Then, for each local
+    clone at the clone directory, its path, last modification date (and
+    how long ago), what is
+    pending to push (commits, uncommitted changes, untracked files) and to
+    pull (commits in the upstream branches, as of the last fetch), marked
+    with ``✔`` when there is nothing and ``✘`` otherwise. Clones whose
+    origin is a former name of the repository are found too, when only its
+    owner changed, and marked as such. When the repository is not found at
+    its site, the local clones are still shown. Instead of REPO, DIR may
+    name a clone, as a path or a directory at the clone directory. Without
+    any, uses the repository in the current directory.
 
 rename REPO NEW-NAME
     Rename a repository.
@@ -69,19 +81,25 @@ clone [--http] [--destdir DIR] REPO
     instead. ``--destdir`` sets the destination directory (default:
     ``[clone] destdir`` in the config file, or the current directory).
 
-local status [--destdir DIR] [-m] [-u] [-t]
+local status [--destdir DIR] [-m] [-u] [-i] [-t] [--offline]
     List the git repositories at the clone directory (``[clone] destdir``
     in the config file, unless ``--destdir`` is given), their last
-    modification date and their pending work: ``M`` marks changes in
+    modification date, access and pending work: ``M`` marks changes in
     tracked files, ``?`` untracked files and ``+N`` N commits not pushed to
     any remote (local branches and detached HEAD). ``-m`` (``--modified``)
     lists only repositories with changes in tracked files, ``-u``
-    (``--unpushed``) only those with unpushed commits; given both,
-    repositories matching either are listed. ``-t`` (``--by-date``) sorts
+    (``--unpushed``) only those with unpushed commits and ``-i``
+    (``--issues``) only those with origin issues (``!``, so not with
+    ``--offline``); given several, repositories matching any of them are
+    listed. ``-t`` (``--by-date``) sorts
     by last modification, newest first: the newest of the last commit in
     local branches (or detached HEAD) and the files with local changes.
-    There is no network access: remote branches are the ones known since
-    the last fetch.
+    Remote branches are the ones known since the last fetch. Origins at
+    GitHub and Bitbucket are looked up to show their access (private or
+    public) and to mark with ``!`` (blinking on terminals) those renamed,
+    transferred or not found, whose details are shown by ``info DIR``;
+    Bitbucket does not redirect the former names of renamed repositories,
+    so they are reported as not found. ``--offline`` skips these lookups.
 
 ls-colab REPO
     List a repository's collaborators.

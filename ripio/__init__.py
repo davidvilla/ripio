@@ -163,16 +163,29 @@ class NetworkError(error):
 
 
 def format_duration(seconds):
+    "Its two most significant units, like '1h 23m'"
     seconds = max(0, int(seconds))
+    years, seconds = divmod(seconds, 365 * 24 * 3600)
+    days, seconds = divmod(seconds, 24 * 3600)
     hours, seconds = divmod(seconds, 3600)
     minutes, seconds = divmod(seconds, 60)
 
+    if years:
+        return "{}y {}d".format(years, days)
+    if days:
+        return "{}d {}h".format(days, hours)
     if hours:
         return "{}h {}m".format(hours, minutes)
     if minutes:
         return "{}m {}s".format(minutes, seconds)
 
     return "{}s".format(seconds)
+
+
+def parse_date(iso_date):
+    "Local naive datetime from an ISO 8601 date with timezone, as sites report them"
+    date = datetime.fromisoformat(iso_date.replace('Z', '+00:00'))
+    return date.astimezone().replace(tzinfo=None)
 
 
 def http_get(*args, **kargs):
@@ -232,13 +245,14 @@ class RepoRef:
     @classmethod
     def parse_origin(cls, url):
         if url.startswith('ssh://'):
-            fields = re.findall(r'\Assh://git@([^/]+)/(.+).git\Z', url)[0]
+            fields = re.findall(r'\Assh://git@([^/]+)/(.+?)(?:\.git)?/?\Z', url)[0]
 
         elif url.startswith('git@'):
-            fields = re.findall(r'\Agit@([^:]+):(.+).git\Z', url)[0]
+            fields = re.findall(r'\Agit@([^:]+):(.+?)(?:\.git)?/?\Z', url)[0]
 
         elif url.startswith('https://'):
-            fields = re.findall(r'\Ahttps?://([^/]+)/(.+)(?:\.git)?\Z', url)[0]
+            # may include credentials, as 'ripio clone --http' does
+            fields = re.findall(r'\Ahttps?://(?:[^@/]+@)?([^/]+)/(.+?)(?:\.git)?/?\Z', url)[0]
 
         else:
             raise BadRepositoryName(url)
@@ -459,10 +473,10 @@ class Auth:
 
 
 def safe_url(url):
-    if '@' not in url:
-        return url
-
     parts = urlparse(url)
+    # scp-like urls ('git@host:path') have no netloc, and no password either
+    if '@' not in parts.netloc:
+        return url
 
     # FIXME: regex?
     user_pass, plain_netloc = parts.netloc.split('@')
@@ -585,7 +599,10 @@ class Repo(Auth):
         return str(self.ref)
 
     def info(self):
+        # loads the full data, so name is the current one, after renames/transfers
+        self.check()
         data = dict(
+            name=self.canonical_name,
             webpage=self.webpage,
             origin_https=self.clone_links['https'],
             origin_ssh=self.clone_links['ssh'],
@@ -622,9 +639,12 @@ class Repo(Auth):
     def list_collaborators(self):
         raise NotImplementedError
 
+    def last_ci_run(self):
+        raise NotImplementedError
+
 
 class LocalRepo:
-    "State of a local working copy, as known since its last fetch (no network access)"
+    "State of a local working copy, as known since its last fetch (no network access but check_origin)"
 
     def __init__(self, path):
         self.path = Path(path)
@@ -640,6 +660,10 @@ class LocalRepo:
             self._load(repo)
 
     def _load(self, repo):
+        # known only after check_origin()
+        self.access = None
+        self.moved_to = None
+
         try:
             self.origin = repo.remote().url
         except ValueError:
@@ -651,7 +675,7 @@ class LocalRepo:
             try:
                 self.ref = RepoRef.from_origin(self.origin)
             except (error, LookupError):
-                logging.debug("- unsupported origin '{}'".format(self.origin))
+                logging.debug("- unsupported origin '{}'".format(safe_url(self.origin)))
 
         status = self._status(repo)
         self.modified = any(xy != '??' for xy, path in status)
@@ -663,6 +687,15 @@ class LocalRepo:
             revs.append('HEAD')
 
         self.unpushed = int(repo.git.rev_list('--count', *revs, '--not', '--remotes'))
+
+        # commits in the upstreams of local branches, missing in them
+        tracks = repo.git.for_each_ref('--format=%(upstream:track,nobracket)', 'refs/heads')
+        self.unpulled = sum(int(n) for n in re.findall(r'behind (\d+)', tracks))
+
+        fetch_head = Path(repo.git_dir) / 'FETCH_HEAD'
+        self.last_fetch = None
+        if fetch_head.exists():
+            self.last_fetch = datetime.fromtimestamp(fetch_head.stat().st_mtime)
 
         # newest of the last local commit and the files with local changes
         timestamps = [int(t) for t in repo.git.log('-1', '--format=%ct', *revs).split()]
@@ -712,6 +745,69 @@ class LocalRepo:
         dirs = sorted(entry for entry in root_dir.iterdir() if entry.is_dir())
         with ThreadPoolExecutor() as pool:
             return [repo for repo in pool.map(load, dirs) if repo is not None]
+
+    @classmethod
+    def find_clones(cls, root_dir, refs, credentials=None):
+        """Working copies at root_dir's direct subdirectories whose origin is any of refs.
+        With credentials, origins with the same slug at other owners are looked up
+        at their sites too, to find clones of transferred repositories."""
+        root_dir = Path(root_dir)
+        if not root_dir.is_dir():
+            return []
+
+        # sites ignore case in owner and repository names
+        names = {ref.global_name.lower() for ref in refs}
+        site_slugs = {(ref.site, ref.slug.lower()) for ref in refs}
+        retval = []
+        for entry in sorted(root_dir.iterdir()):
+            # reading origin is cheap, the full state is loaded only for matches
+            try:
+                with git.Repo(entry) as repo:
+                    origin = repo.remote().url
+                ref = RepoRef.from_origin(origin)
+            except (git.exc.InvalidGitRepositoryError, git.exc.NoSuchPathError,
+                    ValueError, error, LookupError):
+                continue
+
+            if ref.global_name.lower() in names:
+                pass
+            elif credentials is not None and (ref.site, ref.slug.lower()) in site_slugs:
+                logging.info("- looking up '{}' origin '{}'".format(entry.name, ref))
+            else:
+                continue
+
+            try:
+                local_repo = cls(entry)
+            except DirectoryIsNotRepository:
+                continue
+
+            if ref.global_name.lower() not in names:
+                try:
+                    local_repo.check_origin(credentials)
+                except error as e:
+                    logging.info("- {}".format(e))
+                    continue
+
+                moved_to = local_repo.moved_to
+                if moved_to is None or moved_to.global_name.lower() not in names:
+                    continue
+
+            retval.append(local_repo)
+
+        return retval
+
+    def check_origin(self, credentials):
+        """Look up origin at its site (requires a supported origin, i.e. 'ref'),
+        setting 'access' and 'moved_to': its current ref when it was renamed or
+        transferred"""
+        repo = Repo.make(self.ref, credentials)
+        repo.check()
+        self.access = repo.access
+
+        # sites ignore case in owner and repository names
+        current = RepoRef(repo.canonical_name)
+        if current.global_name.lower() != self.ref.global_name.lower():
+            self.moved_to = current
 
     def __repr__(self):
         return "<LocalRepo '{}'>".format(self.path)
@@ -1023,6 +1119,24 @@ class GithubRepo(Repo):
                     c['commit']['author']['name'], c['commit']['author']['email']),
                 date    = c['commit']['author']['date'],
                 message = c['commit']['message'])
+
+    def last_ci_run(self):
+        "Last GitHub Actions workflow run, None when there is none"
+        # https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
+        result = http_get(self.url + '/actions/runs', params={'per_page': 1})
+        self.reply_check(result)
+        runs = result.json()['workflow_runs']
+        if not runs:
+            return None
+
+        run = runs[0]
+        return dict(
+            workflow   = run['name'],
+            title      = run['display_title'],
+            status     = run['status'],
+            conclusion = run['conclusion'],
+            started    = parse_date(run['run_started_at']),
+            updated    = parse_date(run['updated_at']))
 
     def get_user_url(self):
         if self.credentials and \

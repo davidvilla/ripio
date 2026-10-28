@@ -45,3 +45,17 @@ class TestClone:
         stdout = ripio('--config', FIXTURES / 'deprecated.conf', 'create', 'gh:ripio-test/foo',
                        expected=1)
         assert 'AccessDenied: github:ripio-test/foo' in stdout
+
+
+class TestLocalStatus:
+    def test_missing_origin(self, tmp_path):
+        repo = tmp_path / 'gone'
+        subprocess.run(['git', 'init', repo], check=True, capture_output=True)
+        subprocess.run(['git', '-C', repo, 'remote', 'add', 'origin',
+                        'git@github.com:ripio-test/missing.git'], check=True)
+
+        stdout = ripio('--config', '/dev/null', 'local', 'status', '--destdir', tmp_path)
+        assert '   1. !' in stdout
+
+        stdout = ripio('--config', '/dev/null', 'info', repo, expected=1)
+        assert "  - origin:      ✘ github:ripio-test/missing (NOT found)" in stdout
