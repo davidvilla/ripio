@@ -645,6 +645,10 @@ class Repo(Auth):
             print("- retrying with 'https'...")
             self.clone(destdir, proto='https')
 
+    def is_empty(self):
+        "Without commits, like a repository just created or emptied"
+        return next(iter(self.last_commits(1)), None) is None
+
     def list_collaborators(self):
         raise NotImplementedError
 
@@ -672,6 +676,7 @@ class LocalRepo:
         # known only after check_origin()
         self.access = None
         self.moved_to = None
+        self.empty = None
 
         try:
             self.origin = repo.remote().url
@@ -807,11 +812,12 @@ class LocalRepo:
 
     def check_origin(self, credentials):
         """Look up origin at its site (requires a supported origin, i.e. 'ref'),
-        setting 'access' and 'moved_to': its current ref when it was renamed or
-        transferred"""
+        setting 'access', 'empty' (without commits) and 'moved_to': its current
+        ref when it was renamed or transferred"""
         repo = Repo.make(self.ref, credentials)
         repo.check()
         self.access = repo.access
+        self.empty = repo.is_empty()
 
         # sites ignore case in owner and repository names
         current = RepoRef(repo.canonical_name)
@@ -984,11 +990,11 @@ class BitbucketRepo(Repo):
 
     def last_commits(self, max_=3):
         commits_url = self.url + '/commits'
-        result = http_get(commits_url)
+        result = http_get(commits_url, params={'pagelen': max_})
         self.reply_check(result)
         commits = result.json()['values']
 
-        for c in commits[:3]:
+        for c in commits[:max_]:
             yield dict(
                 hash    = c['hash'],
                 author  = c['author']['raw'],
@@ -1114,14 +1120,15 @@ class GithubRepo(Repo):
         url = self.url + '/commits'
         logging.debug(url)
 
-        result = http_get(url)
+        result = http_get(url, params={'per_page': max_})
+        # 409: empty repository
         self.reply_check(result, [200, 409])
         if result.status_code == 409:
             return []
 
         commits = result.json()
 
-        for c in commits[:3]:
+        for c in commits[:max_]:
             yield dict(
                 hash    = c['sha'],
                 author  = "{} <{}>".format(

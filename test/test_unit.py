@@ -171,6 +171,10 @@ class TestRepo:
         repo = make_repo('ripio-test/empty')
         assert list(repo.last_commits()) == []
 
+    @pytest.mark.parametrize('name, expected', [('empty', True), ('repo0', False)])
+    def test_is_empty(self, make_repo, name, expected):
+        assert make_repo('ripio-test/' + name).is_empty() is expected
+
     def test_create(self, make_repo, new_names):
         repo = make_repo('ripio-test/' + new_names.removable)
         assert repo.create() == new_names.removable
@@ -691,11 +695,12 @@ class TestLocalRepo:
 
 class FakeSiteRepo:
     "A repository at its site, as Repo.make() returns, maybe renamed or transferred"
-    def __init__(self, canonical_name, access='public', error=None):
+    def __init__(self, canonical_name, access='public', error=None, empty=False):
         self.ref = ripio.RepoRef(canonical_name)
         self.canonical_name = canonical_name
         self.access = access
         self.error = error
+        self.empty = empty
         self.deleted = False
         self.commits = []
         # NotImplemented: a site without CI support
@@ -711,6 +716,9 @@ class FakeSiteRepo:
 
     def delete(self):
         self.deleted = True
+
+    def is_empty(self):
+        return self.empty
 
     def last_commits(self):
         return iter(self.commits)
@@ -755,6 +763,12 @@ class TestCheckOrigin:
         sut.check_origin({})
         assert sut.access == 'private'
         assert sut.moved_to is None
+        assert sut.empty is False
+
+    def test_empty(self, sut, site_repos):
+        site_repos['github:ripio-test/repo1'] = FakeSiteRepo('github:ripio-test/repo1', empty=True)
+        sut.check_origin({})
+        assert sut.empty is True
 
     def test_case_is_ignored(self, sut, site_repos):
         site_repos['github:ripio-test/repo1'] = FakeSiteRepo('github:Ripio-Test/Repo1')
@@ -831,9 +845,11 @@ class TestDeleteCommand:
 
 class TestLocalStatusCommand:
     def test_access_and_problem_marks(self, tmp_path, site_repos, capsys):
+        local_clone(tmp_path, 'empty', 'git@github.com:ripio-test/empty.git')
         local_clone(tmp_path, 'fine', 'git@github.com:ripio-test/fine.git')
         local_clone(tmp_path, 'gone', 'git@github.com:ripio-test/gone.git')
         local_clone(tmp_path, 'moved', 'git@github.com:ripio-test/repo1.git')
+        site_repos['github:ripio-test/empty'] = FakeSiteRepo('github:ripio-test/empty', empty=True)
         site_repos['github:ripio-test/fine'] = FakeSiteRepo('github:ripio-test/fine')
         site_repos['github:ripio-test/gone'] = FakeSiteRepo(
             'github:ripio-test/gone', error=ripio.RepositoryNotFound(ripio.RepoRef('gh:ripio-test/gone')))
@@ -847,9 +863,10 @@ class TestLocalStatusCommand:
         # index and problem, flags, date, access, directory, origin
         rows = [line.split(' - ') for line in out.splitlines() if not line.startswith('-')]
         assert [(row[0][:7], row[2].strip(), row[3].strip()) for row in rows] == [
-            ('   1.  ', 'public', 'fine'),
-            ('   2. !', '-', 'gone'),
-            ('   3.  ', 'private', 'moved')]
+            ('   1. !', 'public', 'empty'),
+            ('   2.  ', 'public', 'fine'),
+            ('   3. !', '-', 'gone'),
+            ('   4.  ', 'private', 'moved')]
 
     def test_site_wide_errors_are_reported_once(self, tmp_path, site_repos, capsys):
         for name in ['repo1', 'repo2']:
@@ -877,7 +894,9 @@ class TestLocalStatusCommand:
         local_clone(tmp_path, 'fine', 'git@github.com:ripio-test/fine.git')
         local_clone(tmp_path, 'gone', 'git@github.com:ripio-test/gone.git')
         local_clone(tmp_path, 'denied', 'git@github.com:ripio-test/denied.git')
+        local_clone(tmp_path, 'empty', 'git@github.com:ripio-test/empty.git')
         local_clone(tmp_path, 'moved', 'git@github.com:ripio-test/repo1.git')
+        site_repos['github:ripio-test/empty'] = FakeSiteRepo('github:ripio-test/empty', empty=True)
         site_repos['github:ripio-test/fine'] = FakeSiteRepo('github:ripio-test/fine')
         site_repos['github:ripio-test/gone'] = FakeSiteRepo(
             'github:ripio-test/gone', error=ripio.RepositoryNotFound(ripio.RepoRef('gh:ripio-test/gone')))
@@ -891,6 +910,7 @@ class TestLocalStatusCommand:
         out = capsys.readouterr().out
         assert ' gone ' in out
         assert ' denied ' in out
+        assert ' empty ' in out
         assert ' moved ' not in out
         assert ' fine ' not in out
 
