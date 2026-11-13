@@ -25,10 +25,13 @@ class TestClone:
         ripio('--config', '/dev/null', 'clone', '--destdir', tmp_path, 'bb:ripio-test/repo1')
         assert (tmp_path / 'repo1' / '.git').is_dir()
 
+    # Bitbucket answers 404 (not 403) for a private repo when unauthenticated,
+    # just like Github, so it is indistinguishable from a missing one and
+    # reporting 'access denied' would claim knowledge we do not have
     def test_bitbucket_private_no_creds(self, tmp_path):
         stdout = ripio('--config', '/dev/null', 'clone', '--destdir', tmp_path,
                        'bb:ripio-test/private', expected=1, timeout=10)
-        assert 'AccessDenied' in stdout
+        assert 'RepositoryNotFound: bitbucket:ripio-test/private' in stdout
 
     def test_github_public_no_creds(self, tmp_path):
         ripio('--config', '/dev/null', 'clone', '--destdir', tmp_path, 'gh:ripio-test/repo1')
