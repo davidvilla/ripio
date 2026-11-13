@@ -590,14 +590,23 @@ names of renamed repositories: they are not found.
         raise
 
 
+def report_quota():
+    "Say what is left of the API quota, when little is"
+    for warning in ripio.quota.warnings():
+        print(warning)
+
+
 def main_production():
     try:
         run()
-        print('-- ok')
     except ripio.error as e:
+        report_quota()
         print(e)
         print('-- fail')
         sys.exit(1)
+
+    report_quota()
+    print('-- ok')
 
 
 def main_debug():

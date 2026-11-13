@@ -196,11 +196,68 @@ def parse_date(iso_date):
     return date.astimezone().replace(tzinfo=None)
 
 
+# warn once the remaining API quota falls below this share of the whole
+QUOTA_WARNING_LEVEL = 0.2
+
+API_HOSTS = {
+    'api.github.com': GITHUB,
+    'api.bitbucket.org': BITBUCKET,
+}
+
+
+class Quota:
+    """What is left of each site's API request quota, as its replies tell it.
+
+    Only Github tells: it sends 'X-RateLimit-*' on every reply. Bitbucket says
+    nothing while the quota lasts and reveals a limit only by refusing a
+    request, so there is nothing to report about it in advance.
+    """
+
+    def __init__(self):
+        self.sites = {}
+
+    def update(self, reply):
+        "Take note of the quota a reply reports, if it reports any"
+        headers = getattr(reply, 'headers', None) or {}
+        remaining = headers.get('X-RateLimit-Remaining')
+        limit = headers.get('X-RateLimit-Limit')
+        site = API_HOSTS.get(urlparse(getattr(reply, 'url', '')).hostname)
+
+        if site is None or remaining is None or limit is None:
+            return
+
+        try:
+            self.sites[site] = (int(remaining), int(limit),
+                                headers.get('X-RateLimit-Reset'))
+        except ValueError:
+            logging.debug("unreadable quota headers from '%s'", site)
+
+    def warnings(self):
+        "A line per site whose remaining quota is below the warning level"
+        for site, (remaining, limit, reset) in sorted(self.sites.items()):
+            if not limit or remaining / limit >= QUOTA_WARNING_LEVEL:
+                continue
+
+            msg = "- {} quota is low: {:,} of {:,} requests left ({:.0%})".format(
+                site, remaining, limit, remaining / limit)
+
+            if reset is not None:
+                msg += ', renewed in ' + format_duration(float(reset) - time.time())
+
+            yield msg
+
+
+quota = Quota()
+
+
 def http_get(*args, **kargs):
     try:
-        return requests.get(*args, **kargs)
+        reply = requests.get(*args, **kargs)
     except requests.exceptions.ConnectionError as e:
         raise NetworkError(e)
+
+    quota.update(reply)
+    return reply
 
 
 GIT_TRANSPORT_TIMEOUT = 20
@@ -1004,6 +1061,7 @@ def api_check(reply, expected, raises):
     raises = raises or {}
     code = reply.status_code
     logging.debug(reply)
+    quota.update(reply)
 
     if code in expected:
         return
