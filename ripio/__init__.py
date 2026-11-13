@@ -217,6 +217,9 @@ GIT_TRANSPORT_ENV = dict(
     GIT_TERMINAL_PROMPT='0',
     GIT_SSH_COMMAND='ssh -oBatchMode=yes')
 
+# an attribute rule enabling git-lfs, ignoring commented out lines
+LFS_ATTRIBUTE = re.compile(r'^[^#\n]*\bfilter=lfs\b', re.MULTILINE)
+
 # what the sites answer when the repo is missing *or* unreadable for us: both
 # Bitbucket and Github refuse to tell those two apart over the git protocol
 MISSING_REMOTE = re.compile(
@@ -786,6 +789,37 @@ class Repo(Auth):
             print("- retrying with 'https'...")
             self.clone(destdir, proto='https')
 
+    def uses_lfs(self):
+        """Whether the repository tracks files with git-lfs.
+
+        Neither site reports LFS usage through its API, and the git protocol
+        does not advertise it either, so '.gitattributes' is the only free
+        signal: a repository tracks LFS when some rule of it sets
+        'filter=lfs'. This says nothing about how much LFS storage is
+        consumed, which both sites report only on their web interface.
+
+        It costs one request per repository.
+        """
+        attributes = self.gitattributes()
+        if attributes is None:
+            return False
+
+        return bool(LFS_ATTRIBUTE.search(attributes))
+
+    def gitattributes(self):
+        "Contents of '.gitattributes' at the default branch, None when absent"
+        raise NotImplementedError
+
+    def _get_text_file(self, url, **kargs):
+        "The file as text, or None when the site says there is no such file"
+        logging.debug(url)
+        result = http_get(url, **kargs)
+        if result.status_code == 404:
+            return None
+
+        self.reply_check(result)
+        return result.text
+
     def list_collaborators(self):
         raise NotImplementedError
 
@@ -1126,6 +1160,9 @@ class BitbucketRepo(Repo):
     def webpage(self):
         return self.links['html']['href']
 
+    def gitattributes(self):
+        return self._get_text_file(self.url + '/src/HEAD/.gitattributes')
+
     def last_commits(self, max_=3):
         commits_url = self.url + '/commits'
         result = http_get(commits_url, params={'pagelen': max_})
@@ -1253,6 +1290,12 @@ class GithubRepo(Repo):
     @lru_cache()
     def webpage(self):
         return self.html_url
+
+    def gitattributes(self):
+        # the 'raw' media type gives the file itself instead of base64 in JSON
+        return self._get_text_file(
+            self.url + '/contents/.gitattributes',
+            headers={'Accept': 'application/vnd.github.raw'})
 
     def last_commits(self, max_=3):
         # https://developer.github.com/v3/repos/commits/#list-commits

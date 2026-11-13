@@ -75,9 +75,21 @@ def cmd_ls_repos(config):
     else:
         ws = ripio.GithubWorkspace(ws_name, credentials)
 
-    fmt = "{0:>4}. {1:>12,} KB - {2.scm:<3} - {2.access:<7} - {2.full_name:<20}"
-    for i, repo in enumerate(ws.ls_repos()):
-        print(fmt.format(i+1, repo.size, repo))
+    repos = ws.ls_repos()
+    lfs = []
+
+    if config.lfs:
+        # one request per repository, and whether the column has anything to
+        # say is known only after asking all of them, so the listing can no
+        # longer be printed as it arrives
+        repos = list(repos)
+        lfs = [repo.uses_lfs() for repo in repos]
+
+    show_lfs = any(lfs)
+    fmt = "{0:>4}. {1:>12,} KB{2} - {3.scm:<3} - {3.access:<7} - {3.full_name:<20}"
+    for i, repo in enumerate(repos):
+        column = ' - {:<3}'.format('LFS' if lfs[i] else '') if show_lfs else ''
+        print(fmt.format(i+1, repo.size, column, repo))
 
 
 def cmd_print_head(config):
@@ -471,6 +483,11 @@ Abbreviated names are allowed when suitable configuration is given.
 ''')
     parser_ls.set_defaults(func=cmd_ls_repos)
     parser_ls.add_argument('owner', help='team or user')
+    parser_ls.add_argument(
+        '--lfs', action='store_true',
+        help='mark repositories tracking files with git-lfs.\n'
+             'It costs a request per repository, so the whole listing is\n'
+             'retrieved before printing anything')
 
     parser_head = cmds.add_parser('head', help='show last commits')
     parser_head.set_defaults(func=cmd_print_head)
