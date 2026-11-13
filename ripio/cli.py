@@ -86,7 +86,7 @@ def cmd_ls_repos(config):
         lfs = [repo.uses_lfs() for repo in repos]
 
     show_lfs = any(lfs)
-    fmt = "{0:>4}. {1:>12,} KB{2} - {3.scm:<3} - {3.access:<7} - {3.full_name:<20}"
+    fmt = "{0:>4}. {1:>12,} KB{2} - {3.access:<7} - {3.full_name:<20}"
     for i, repo in enumerate(repos):
         column = ' - {:<3}'.format('LFS' if lfs[i] else '') if show_lfs else ''
         print(fmt.format(i+1, repo.size, column, repo))

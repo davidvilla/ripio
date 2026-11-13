@@ -103,7 +103,6 @@ class FakeRepo:
 
     def __init__(self, full_name, lfs=False, size=1):
         self.full_name = full_name
-        self.scm = 'git'
         self.access = 'public'
         self.size = size
         self.lfs = lfs
@@ -141,6 +140,15 @@ class LsColumn(TestCase):
             cli.cmd_ls_repos(FakeConfig())
 
         return out.getvalue()
+
+    def test_the_version_control_system_is_not_shown(self):
+        # both sites are git only: Bitbucket dropped mercurial and Github
+        # never had it, so the field said 'git' on every single row
+        out = self.ls([FakeRepo('acme/widget')], lfs=False)
+
+        self.assertNotIn('git', out)
+        self.assertIn('public', out)
+        self.assertIn('acme/widget', out)
 
     def test_without_the_option_nothing_is_asked(self):
         # the column costs one request per repository, so it is opt-in

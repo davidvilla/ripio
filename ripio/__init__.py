@@ -1120,7 +1120,6 @@ class BitbucketRepo(Repo):
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
         instance._data.update(dict(
-            scm=data['scm'],
             slug=data['slug'],
             full_name=data['full_name'],
             size=cls._get_size(data),
@@ -1262,7 +1261,6 @@ class GithubRepo(Repo):
     def from_data(cls, data, credentials=None):
         instance = cls(data['full_name'], credentials)
         instance._data.update(dict(
-            scm='git',
             slug=data['name'],
             full_name=data['full_name'],
             size=cls._get_size(data),
