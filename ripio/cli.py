@@ -222,7 +222,7 @@ def _check_origins(repos, credentials):
             return e
 
     repos = [r for r in repos if r.ref is not None]
-    with ThreadPoolExecutor(max_workers=16) as pool:
+    with ThreadPoolExecutor(max_workers=ripio.GIT_TRANSPORT_CONCURRENCY) as pool:
         return {repo: e for repo, e in zip(repos, pool.map(check, repos)) if e is not None}
 
 

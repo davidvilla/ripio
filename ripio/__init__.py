@@ -163,6 +163,12 @@ class RateLimitExceeded(error):
 class NetworkError(error):
     pass
 
+class GitRemoteMissing(error):
+    "the server says the repo is not there (or is not readable by us)"
+
+class NoGitTransport(error):
+    "we could not ask the git protocol at all: no key, no network, timeout..."
+
 
 def format_duration(seconds):
     "Its two most significant units, like '1h 23m'"
@@ -195,6 +201,62 @@ def http_get(*args, **kargs):
         return requests.get(*args, **kargs)
     except requests.exceptions.ConnectionError as e:
         raise NetworkError(e)
+
+
+GIT_TRANSPORT_TIMEOUT = 20
+
+# The sites throttle ssh connections, and a throttled check degrades to the API
+# (see git_ls_remote), so asking many repos at once trades the quota we meant to
+# save for latency. Keep it low: this bounds *concurrent* git transport, not the
+# amount of work.
+GIT_TRANSPORT_CONCURRENCY = 8
+
+# BatchMode makes ssh fail instead of asking for a password or for confirmation
+# of an unknown host key, so a half-configured ssh can never block ripio.
+GIT_TRANSPORT_ENV = dict(
+    GIT_TERMINAL_PROMPT='0',
+    GIT_SSH_COMMAND='ssh -oBatchMode=yes')
+
+# what the sites answer when the repo is missing *or* unreadable for us: both
+# Bitbucket and Github refuse to tell those two apart over the git protocol
+MISSING_REMOTE = re.compile(
+    r'repository not found|repository does not exist|access denied',
+    re.IGNORECASE)
+
+
+def git_ls_remote(url):
+    """Refs advertised by the server, as a {refname: sha} dict.
+
+    This speaks the git protocol instead of the HTTP API: it is the first phase
+    of a clone, cut before a single object is downloaded, so it does NOT
+    consume API quota. An empty dict is a reachable repository with no refs,
+    that is, an empty one.
+
+    Free of API quota is not free of limits: the sites throttle ssh connections
+    too, and Github then resets the connection during key exchange. That raises
+    NoGitTransport, never GitRemoteMissing, so a throttled check degrades to
+    the API instead of lying. Do not run this concurrently over many repos.
+    """
+    logging.debug("ls-remote '%s'", url)
+
+    try:
+        out = git.cmd.Git().ls_remote(
+            url, env=GIT_TRANSPORT_ENV,
+            kill_after_timeout=GIT_TRANSPORT_TIMEOUT)
+    except git.exc.CommandError as e:   # also when git itself is missing
+        stderr = e.stderr or ''
+        if MISSING_REMOTE.search(stderr):
+            raise GitRemoteMissing(url)
+
+        raise NoGitTransport(stderr.strip() or str(e))
+
+    retval = {}
+    for line in out.splitlines():
+        sha, _, name = line.partition('\t')
+        if name:
+            retval[name] = sha
+
+    return retval
 
 
 class WorkspaceName:
@@ -496,6 +558,7 @@ def safe_url(url):
 
 class Repo(Auth):
     UID_FIELD = None
+    SSH_HOST = None
 
     @property
     def uid(self):
@@ -512,7 +575,77 @@ class Repo(Auth):
         self.webpage
         return True
 
+    @property
+    def ssh_origin(self):
+        """The ssh origin url, built without asking the site.
+
+        It is a plain function of owner and slug, so it is free, but unlike the
+        url the API reports it is not rename-aware: for a renamed repository it
+        holds the stale name, which both sites still serve.
+        """
+        assert self.SSH_HOST is not None
+        return 'git@{}:{}.git'.format(self.SSH_HOST, self.ref.full_name)
+
+    def remote_refs(self):
+        "{refname: sha} as the site advertises them, free of API quota"
+        try:
+            return git_ls_remote(self.ssh_origin)
+        except GitRemoteMissing:
+            raise RepositoryNotFound(self.ref)
+
+    def is_empty(self):
+        """Without commits, like a repository just created or emptied.
+
+        Asked through the git protocol, which is free of API quota and also
+        the only trustworthy source: the 'size' field of both APIs is
+        recomputed asynchronously and reads 0 for a repository pushed moments
+        ago.
+
+        Falls back to the API commit list whenever the git protocol does not
+        answer, including when it reports the repo as missing: that is also the
+        answer for a repository our ssh key may not read, while our API
+        credentials may well reach it (same reasoning as exists()). So the API
+        always has the last word, and a genuinely missing repository raises
+        RepositoryNotFound from there instead of here.
+
+        Like exists(), the fast path is reserved for the credentialed case: our
+        key alone may reach a private repository the configured credentials can
+        not, and an unconfigured ripio must not answer for it.
+        """
+        if self.credentials is not None:
+            try:
+                return not self.remote_refs()
+            except (NoGitTransport, RepositoryNotFound):
+                pass
+
+        return next(iter(self.last_commits(1)), None) is None
+
     def exists(self):
+        """True when the repository answers.
+
+        Asks the git protocol first, which costs no API quota, and falls back
+        to the API when that answer is not conclusive. A server reporting the
+        repo as missing is NOT conclusive: that is also what both sites answer
+        for a repository we may not read, and our ssh key may well have less
+        access than our API credentials. So only a successful answer short-cuts
+        the API, and the fast path can never turn an existing repo into a
+        false negative.
+
+        The fast path is reserved for the credentialed case, because ssh access
+        is usually *wider*: our key alone may well reach a private repository
+        that the configured credentials can not, and answering 'yes' then would
+        let an unconfigured ripio work on repos it must report as unreachable.
+
+        Beware: a renamed repository keeps answering under its old name, both
+        here and in the API. checked_exists() is the one that validates names.
+        """
+        if self.credentials is not None:
+            try:
+                self.remote_refs()
+                return True
+            except (RepositoryNotFound, NoGitTransport):
+                pass
+
         try:
             self.check()
             return True
@@ -619,6 +752,12 @@ class Repo(Auth):
             size='{:,} KB'.format(self.size)
         )
 
+        # 'size' lies for a just-pushed repo, so state emptiness apart
+        try:
+            data['empty'] = 'yes' if self.is_empty() else 'no'
+        except error:
+            pass
+
         retval = ""
         for key, val in data.items():
             retval += f"- {key.replace('_', ' ')+':':14} {val}\n"
@@ -629,9 +768,11 @@ class Repo(Auth):
         def dash(*data):
             print('-', end='', flush=True)
 
-        url = self.clone_links[proto]
-        if proto == 'https':
-            url = self.auth(url)
+        if proto == 'ssh':
+            # free: the ssh origin is deterministic, no need to ask the API
+            url = self.ssh_origin
+        else:
+            url = self.auth(self.clone_links[proto])
 
         logging.debug(url)
 
@@ -644,10 +785,6 @@ class Repo(Auth):
 
             print("- retrying with 'https'...")
             self.clone(destdir, proto='https')
-
-    def is_empty(self):
-        "Without commits, like a repository just created or emptied"
-        return next(iter(self.last_commits(1)), None) is None
 
     def list_collaborators(self):
         raise NotImplementedError
@@ -924,6 +1061,7 @@ class Github:
 class BitbucketRepo(Repo):
     BASE_URL = 'https://api.bitbucket.org/2.0/repositories/{owner}/{repo}'
     UID_FIELD = 'uuid'
+    SSH_HOST = BITBUCKET
 
     def __init__(self, name, credentials=None):
         self.ref = RepoRef.cast(name, site='bitbucket')
@@ -1061,6 +1199,7 @@ class GithubRepo(Repo):
     ORG_URL  = 'https://api.github.com/orgs/{org}/repos'
     OWNER_URL = 'https://api.github.com/user/repos'
     UID_FIELD = 'id'
+    SSH_HOST = GITHUB
 
     # FIXME: refactor superclass
     def __init__(self, name, credentials=None):
